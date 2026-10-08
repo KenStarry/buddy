@@ -82,15 +82,28 @@ the figure is the only bright object in the frame.
 
 Two consequences worth not undoing:
 
-- **White is the accent.** On a 4%-luminance page a white pill is already the
-  loudest thing available, so `primary` is achromatic in both modes and the
-  scheme's `accent` is a *data* colour — progress, focus, selection, charts.
-  Painting a CTA with the accent makes it quieter, not louder.
-- **Surfaces separate by fill, not elevation.** A drop shadow on near-black
-  subtracts light that isn't there. Hence four surface steps where the old
-  cream palette needed three, and hence `BudgyShadows` doing very little on
-  this ground. The no-borders rule below is what makes that discipline
-  necessary rather than optional.
+- **White is the accent — and it is rationed.** On a 4%-luminance page a white
+  pill is the loudest thing available, so `primary` is achromatic in both modes
+  and the scheme's `accent` is a *data* colour (progress, focus, selection,
+  charts). But loudest only works if it is rare: white is for a screen's
+  **single primary action** (`BudgyFilledButton`) and the nav's active disc.
+  A *row* of equal actions is not that — the home CTAs are three peers, and
+  three white slabs spend the whole budget at once. They ride the surface
+  ladder instead.
+- **Surfaces are an elevation ladder, and separate by fill.** A drop shadow on
+  near-black subtracts light that isn't there, so `surface100→400` carries what
+  elevation normally would: page, card on page, thing on card, top of stack. A
+  widget picks its step by asking *what am I resting on*, not *am I an input or
+  a chip*.
+
+  ⚠️ On near-black there is no **down**. A recessed input cannot be painted
+  darker than a page already at 2% luminance, so raised and recessed things
+  step up the same ladder; what separates them is the **edge**. A raised
+  surface catches a specular along its top (`GlassCard`, `ScoopButton`), a
+  recessed one does not. Reaching for a darker fill to say "inset" is the one
+  move this ramp cannot make — and it is why `ScoopButton` derives a pane
+  gradient and an edge highlight from whatever fill it is handed: without them
+  a surface-filled button flattens straight into the page it sits on.
 
 **Display weights are 600, not 800.** Heavy numerals were right on cream, where
 a figure had to fight a white card. On near-black the same weight reads as
@@ -155,6 +168,143 @@ Using the brand accent for the second one puts the same cast on every card in a
 list and undoes the thing the colour slot exists for. Throwing it far (35°+)
 sends a tangerine card's second bloom to yellow, which at low luminance over
 near-black is olive — the card reads dirty rather than lit.
+
+**Ambient light is bright — `asLight()`, always, for data-derived hues.** A
+mid-tone colour laid over near-black at low alpha does not read as coloured
+light; it reads as dirty paint. Tangerine arrives brown, amber arrives olive,
+and the screen looks stained rather than lit. ⚠️ Saturation has to be cut
+*hard* (to about a third), not trimmed: at 85% a tangerine category still lit
+the entry screen sepia. Real light is near-white at its core and only carries a
+cast. `AmbientGlow` blooms whose colour
+comes from data (a category slot, a wallet's hue) must be lifted to a light
+source's lightness first; the low alpha then does the work of keeping it
+subtle. Blooms inside a `GlassCard` are the exception — there the hue is
+*material*, not light, and runs at full strength.
+
+**Selection is a neutral fill step; the hue lives in the glyph.** `GlassPill`
+brightens when picked and fills its glyph disc to full strength — it does not
+tint its body. Category colour at pill alpha over near-black is the same mud as
+above, so a chosen pill ended up looking soiled rather than selected.
+**Brightness says *picked*, colour says *which*.** For the same reason there is
+no selection ring: on glass a ring cannot be told apart from the edge specular
+the surface already has.
+
+**The entry screen is built outward from the figure.** The amount is ranged
+**left** at 88pt and sits on the page, not inside a panel. Three attempts at
+this screen failed the same way: the controls were fine and the screen was
+bland, because every surface on it — direction cells, a glass slip, five
+coloured orbs, the keys, the save bar — sat within a few percent of each other
+in a narrow band of mid-grey, while the one thing that should dominate was
+small, dim and *boxed*, which shrinks it further. Boxing a number is the
+fastest way to make it stop being the point.
+
+So: no panel around the figure; direction is set in **type** (the live word
+white, the other two at 34% — same information, none of the ink three filled
+cells cost); and the remaining terms are **one quiet bar of zones** rather than
+five coloured orbs, which were the loudest thing on the screen after nothing
+and are the least important part of an entry. Each zone still opens its own
+anchored panel (`PillPopover`), and lights only when it holds a real choice
+rather than a standing default — so "not today" is visible without reading.
+
+Ranged left matters: centred, a figure reads as *a result*; ranged left at this
+size it reads as something being typed, which is what it is. The optional label
+sits on the same axis for the same reason.
+
+**The commit is a capsule that is not there until there is something to
+commit.** Everything else on the entry screen is a circle, a word or one soft
+bar; a full-width rectangle landing under a circular dial broke that outright,
+and while *disabled* it carried real weight meaning nothing — a dead slab
+anchoring the bottom of a screen you had not given an amount to yet.
+
+So it is sized to its own words, centred, and absent until `canSave`. ⚠️ The
+slot keeps its height either way: the dial must not jump when the first digit
+lands. It arrives by scaling in, which turns "you can save now" into something
+seen rather than noticed. White fill, because white is the single-primary-action
+colour everywhere in the app; the **glow** takes the direction's hue, so the one
+chromatic halo on the page belongs to the same light as the room.
+
+**One date picker, `showBudgyDatePicker`.** Material's own is a white dialog
+with its own type ramp, radii and primary colour; dropped into a near-black app
+it does not read as a themed component, it reads as a different product briefly
+taking over the screen. Theming it is not an option either — the parts that
+look wrong (the header block, the input-mode toggle, the edit field) are the
+parts `DatePickerThemeData` cannot reach. All three call sites (entry, goal
+target, budget anchor) go through the house one.
+
+**Tap commits; there is no OK button.** Picking a day *is* the choice. A
+Cancel/OK pair would add a tap to the common case to guard against a mistake
+that costs one tap to undo. Month paging and the year grid change what is
+*shown* without committing, so there is still no way to pick by accident. Today
+is marked in the accent rather than with a ring — a ring on an unselected cell
+is one mark away from looking selected, which on a calendar is the single
+ambiguity worth spending a colour to avoid.
+
+**Glass only where you can see through it.** The popover panel and the date
+card are **solid** — a raised fill with the light along the top edge — not
+frosted. Both previously ran a `BackdropFilter` beneath a fill at ~96% opacity,
+behind a scrim, over near-black: a `saveLayer` blurring something that was then
+almost entirely painted over. Reach for `BackdropFilter` when there is
+genuinely something behind worth refracting (the header's ghost accounts over
+`AmbientGlow`); everywhere else it is cost with no picture.
+
+**The pad is a dial, not a keyboard.** Circular glass keys sized to a thumb and
+centred, rather than twelve full-width slabs filling the bottom half of a
+screen whose entire point is one enormous number. A disc is the oldest "press
+here" there is, so the affordance costs less ink, and the contrast budget goes
+to the figure. Press is a radial bloom from the centre plus a scale — a fill
+swap reads as a state change, a bloom reads as *lighting up*.
+
+`MoneySize.entry` (62pt) exists for that figure, which is the largest in the
+app because it is the only thing the screen is for. It kicks 3.5% on each
+keypress: the same acknowledgement the haptic gives the thumb, for the eye.
+
+**The screen is lit by its direction, and only by that.** `outflow` for a
+spend, `inflow` for an income, `transfer` for a move — three fixed colours,
+cross-faded on change. The keypad's press bloom takes the same tint, so a key
+lights in the colour of what is being logged.
+
+⚠️ It is **not** keyed to the chosen category, which is what it did first. That
+looked right only by accident: arriving from the home screen, Spend and Income
+happen to default to categories of different hues. Toggling direction in place
+cleared the category, the tint fell through to a single fallback, and the room
+stopped changing at all — the one thing the glow exists to show. Direction is
+also the better source on its own terms: it is the entry's primary fact, it can
+never be unset, and money leaving versus arriving is exactly the distinction
+worth lighting a room over. The category's own colour still appears, in its
+zone on the terms bar.
+
+⚠️ Switching direction **re-seeds** the category for the new set rather than
+just clearing it. The sets are disjoint, so a category chosen for an expense is
+meaningless once the entry is income — but `_hydrate` only ever runs once, so
+nothing was putting a new one back, and the form was left with no category at
+all.
+
+⚠️ Its bloom is anchored **above the top edge** and made wide, so only the
+falloff is on screen. Centred inside the page a bloom resolves as a visible
+disc — a spotlight parked behind the figure — and the eye reads its rim rather
+than the light. Pushed off the top it becomes a wash pouring down the page,
+which is what the home header does and what makes the two screens feel lit by
+the same source.
+
+⚠️ The dial is **pinned below the figure**, not inside a scroll view. It used
+to scroll, and scrolled away under the save button — on the screen whose entire
+job is pressing those keys. The page also sets `resizeToAvoidBottomInset:
+false`: the only field that raises a keyboard is the optional label near the
+top, and resizing would compress a column that has no slack to give.
+
+⚠️ **`withValues(alpha:)` sets the channel, it does not scale it.**
+`MoneyText`'s satellite style read `ink.withValues(alpha: 0.7)`, so any caller
+passing a translucent ink — a placeholder amount at 22%, a muted row — got a
+currency symbol at 70% against a figure at 22%: the label louder than the
+number it labelled. Multiply by `ink.a` when stepping a colour *down* from
+whatever was handed in.
+
+**Disabled controls are glass, not a surface step.** `surface300` on a dark
+page paints a slab *lighter* than the page around it, so a button that cannot
+be pressed looked heavier than one that can. The same inversion was live in
+`SegmentedPillTabs`, whose thumb was `surface200` on a `surface300` track —
+the selected segment darker than the thing it sat in. Both are leftovers from
+the cream palette, where a white thumb genuinely did lift off a sand track.
 
 **Progress is a travelling wave.** `WavyMeter` is the house progress language:
 a sine stroked with round caps, a gap, a flat remaining track, a stop dot.

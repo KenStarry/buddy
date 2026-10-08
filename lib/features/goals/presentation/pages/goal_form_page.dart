@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../../core/presentation/components/budgy_date_picker.dart';
 import '../../../../core/presentation/components/amount_keypad.dart';
 import '../../../../core/presentation/components/budgy_card.dart';
 import '../../../../core/presentation/components/budgy_chip.dart';
@@ -168,7 +169,7 @@ class _GoalFormPageState extends ConsumerState<GoalFormPage> {
                     icon: Icons.event,
                     dense: true,
                     onTap: () async {
-                      final picked = await showDatePicker(
+                      final picked = await showBudgyDatePicker(
                         context: context,
                         initialDate:
                             _targetDate ??
@@ -186,18 +187,13 @@ class _GoalFormPageState extends ConsumerState<GoalFormPage> {
 
               if (_targetDate != null && _targetMinor > 0) ...[
                 const SizedBox(height: 22),
-                _PaceCard(
-                  targetMinor: _targetMinor,
-                  targetDate: _targetDate!,
-                ),
+                _PaceCard(targetMinor: _targetMinor, targetDate: _targetDate!),
               ],
 
               const SizedBox(height: 24),
               Text(
                 'WHAT HAPPENS WHEN YOU GET THERE',
-                style: context.textTheme.labelSmall?.copyWith(
-                  color: c.text300,
-                ),
+                style: context.textTheme.labelSmall?.copyWith(color: c.text300),
               ),
               const SizedBox(height: 11),
               // Saving vs spending changes only how reaching the target is

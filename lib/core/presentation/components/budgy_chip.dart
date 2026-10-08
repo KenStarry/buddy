@@ -157,7 +157,13 @@ class SegmentedPillTabs extends StatelessWidget {
       height: height,
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: c.surface300,
+        // ⚠️ Glass, and the **thumb is lighter than the track** — it used to
+        // be `surface200` on `surface300`, which on a dark page made the
+        // selected segment darker than the thing it sits in. That inversion
+        // is a leftover from the cream palette, where a white thumb genuinely
+        // did lift off a sand track; carried onto near-black it reads as the
+        // live tab being switched off.
+        color: c.heroInk.withValues(alpha: 0.06),
         borderRadius: BorderRadius.circular(height / 2),
       ),
       child: LayoutBuilder(
@@ -174,15 +180,15 @@ class SegmentedPillTabs extends StatelessWidget {
                 width: slot,
                 child: Container(
                   decoration: BoxDecoration(
-                    color: c.surface200,
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        c.heroInk.withValues(alpha: 0.20),
+                        c.heroInk.withValues(alpha: 0.13),
+                      ],
+                    ),
                     borderRadius: BorderRadius.circular(height / 2),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.05),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
                   ),
                 ),
               ),
@@ -199,7 +205,9 @@ class SegmentedPillTabs extends StatelessWidget {
                             duration: const Duration(milliseconds: 200),
                             style:
                                 context.textTheme.labelLarge?.copyWith(
-                                  color: i == selected ? c.text100 : c.text300,
+                                  color: i == selected
+                                      ? c.heroInk
+                                      : c.heroInk.withValues(alpha: 0.5),
                                 ) ??
                                 const TextStyle(),
                             child: Text(labels[i]),

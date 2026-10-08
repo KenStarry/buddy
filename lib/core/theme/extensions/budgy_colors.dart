@@ -65,23 +65,38 @@ class BudgyColors extends ThemeExtension<BudgyColors> {
 
   // ───────────────────── Surfaces ──────────────────────────────────────────
   //
-  // Four steps of one hue. On near-black a drop shadow is almost nothing, so
-  // **fill is what separates these**, not elevation — which is why the ramp
-  // has a fourth step here where the cream palette needed only three.
+  // An **elevation ladder**, not a set of roles. Each step is one level
+  // further off the page, and a widget picks its step by asking "what am I
+  // resting on?" rather than "am I an input or a chip?".
+  //
+  //   surface100  the page
+  //   surface200  a card resting on the page
+  //   surface300  something resting on a card — a nested panel, an input, a
+  //               segmented track, an inert chip
+  //   surface400  the top of the stack — a chip on a band, a pressed tile
+  //
+  // ⚠️ On near-black there is no *down*. A recessed input cannot be painted
+  // darker than a page that is already at 2% luminance, so both raised and
+  // recessed things step **up** the same ladder. What separates them is the
+  // edge: a raised surface catches a specular highlight along its top (see
+  // `GlassCard`, `ScoopButton`), a recessed one does not. Reaching for a
+  // darker fill to say "inset" is the one move this ramp cannot make.
 
   /// The page.
   final Color surface100;
 
-  /// The card — a different fill from [surface100], which is what lets a card
-  /// read as a card before any shadow does.
+  /// A card resting on the page — a different fill from [surface100], which is
+  /// what lets a card read as a card before any shadow does. (And it has to:
+  /// shadows do almost nothing on this ground.)
   final Color surface200;
 
-  /// Tonal band — input fills, segmented tracks, inert chips, table stripes.
+  /// Something resting on a card: a nested panel, an input fill, a segmented
+  /// track, an inert chip.
   final Color surface300;
 
-  /// Raised twice: a chip *on* a band, a pressed tile, the near card in a
-  /// stack. The step that keeps a nested surface from vanishing into its
-  /// parent on a dark page.
+  /// The top of the stack — a chip on a band, a pressed tile, the near card in
+  /// a stack. The step that keeps a twice-nested surface from vanishing into
+  /// its parent on a dark page.
   final Color surface400;
 
   /// Hairline divider.
@@ -258,20 +273,12 @@ class BudgyColors extends ThemeExtension<BudgyColors> {
           : const Color(0xFFF5E2AF),
 
       errorMain: isNight ? BudgyPalette.danger : BudgyPalette.dangerDay,
-      errorSurface: isNight
-          ? const Color(0xFF2A0F13)
-          : const Color(0xFFFDECEC),
-      errorBorder: isNight
-          ? const Color(0xFF5E2129)
-          : const Color(0xFFF7C9C9),
+      errorSurface: isNight ? const Color(0xFF2A0F13) : const Color(0xFFFDECEC),
+      errorBorder: isNight ? const Color(0xFF5E2129) : const Color(0xFFF7C9C9),
 
       infoMain: isNight ? BudgyPalette.info : BudgyPalette.infoDay,
-      infoSurface: isNight
-          ? const Color(0xFF101B2E)
-          : const Color(0xFFEAF1FE),
-      infoBorder: isNight
-          ? const Color(0xFF1F3A5E)
-          : const Color(0xFFC6DCF7),
+      infoSurface: isNight ? const Color(0xFF101B2E) : const Color(0xFFEAF1FE),
+      infoBorder: isNight ? const Color(0xFF1F3A5E) : const Color(0xFFC6DCF7),
 
       categories: isNight
           ? BudgyPalette.categoryNight
@@ -291,7 +298,10 @@ class BudgyColors extends ThemeExtension<BudgyColors> {
   );
 
   @override
-  ThemeExtension<BudgyColors> lerp(ThemeExtension<BudgyColors>? other, double t) {
+  ThemeExtension<BudgyColors> lerp(
+    ThemeExtension<BudgyColors>? other,
+    double t,
+  ) {
     if (other is! BudgyColors) return this;
     return BudgyColors(
       primary: Color.lerp(primary, other.primary, t)!,

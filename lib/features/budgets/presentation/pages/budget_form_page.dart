@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../../core/presentation/budgy_icons.dart';
+import '../../../../core/presentation/components/budgy_date_picker.dart';
 import '../../../../core/presentation/components/amount_keypad.dart';
 import '../../../../core/presentation/components/budgy_card.dart';
 import '../../../../core/presentation/components/budgy_chip.dart';
@@ -221,7 +222,7 @@ class _BudgetFormPageState extends ConsumerState<BudgetFormPage> {
                 anchor: _anchor,
                 customDays: _customDays,
                 onPick: () async {
-                  final picked = await showDatePicker(
+                  final picked = await showBudgyDatePicker(
                     context: context,
                     initialDate: _anchor,
                     firstDate: DateTime(DateTime.now().year - 2),

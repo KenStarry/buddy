@@ -68,8 +68,14 @@ class WalletsPage extends ConsumerWidget {
                     const Spacer(),
                     BudgyIconButton(
                       icon: LucideIcons.plus,
-                      tone: c.primary,
-                      iconColor: c.primaryInk,
+                      // A step up the ladder from the back button beside it,
+                      // which is how this row says which of the two matters —
+                      // rather than by being the only white block on a dark
+                      // page. White is reserved for a screen's single primary
+                      // action (see `BudgyFilledButton`), and "add a wallet"
+                      // is chrome on a list, not that.
+                      tone: c.surface300,
+                      iconColor: c.text100,
                       onTap: () => WalletSheet.show(context, null),
                     ),
                   ],

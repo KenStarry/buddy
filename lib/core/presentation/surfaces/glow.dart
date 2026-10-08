@@ -43,6 +43,29 @@ class AmbientGlow extends StatelessWidget {
   );
 }
 
+/// Raises a hue to a **light source's** lightness.
+///
+/// ⚠️ Use this for any bloom whose colour comes from data (a category slot, a
+/// wallet's hue) rather than from the accent. A mid-tone hue laid over
+/// near-black at low alpha does not read as coloured light; it reads as dirty
+/// paint — tangerine goes brown, amber goes olive, and the screen looks
+/// stained rather than lit. Real light is bright and desaturated at its core,
+/// so the bloom is drawn with the hue lifted and the saturation eased off; the
+/// low alpha then does the work of making it subtle.
+Color asLight(Color color) {
+  final hsl = HSLColor.fromColor(color);
+  // ⚠️ Saturation is cut *hard*, not trimmed. At 85% a tangerine category lit
+  // the entry screen sepia — the page read as dusty rather than lit, because
+  // a warm mid-saturation hue over near-black is exactly the colour of dirt.
+  // Real light is close to white at its core and only carries a cast; pulling
+  // saturation to a third and the lightness up gets that, and the bloom's own
+  // low alpha keeps the cast visible.
+  return hsl
+      .withLightness(0.76)
+      .withSaturation((hsl.saturation * 0.34).clamp(0.0, 0.5))
+      .toColor();
+}
+
 @immutable
 class AmbientBloom {
   const AmbientBloom({

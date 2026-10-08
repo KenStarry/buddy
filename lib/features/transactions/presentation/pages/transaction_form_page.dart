@@ -1,19 +1,22 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../../core/domain/currency.dart';
+import '../../../../core/presentation/components/budgy_date_picker.dart';
 import '../../../../core/presentation/components/amount_keypad.dart';
 import '../../../../core/presentation/components/budgy_button.dart';
+import '../../../../core/presentation/budgy_icons.dart';
 import '../../../../core/presentation/components/budgy_card.dart';
+import '../../../../core/presentation/components/glass_card.dart';
 import '../../../../core/presentation/components/budgy_chip.dart';
 import '../../../../core/presentation/components/budgy_sheet.dart';
-import '../../../../core/presentation/components/category_glyph.dart';
 import '../../../../core/presentation/components/money_text.dart';
+import '../../../../core/presentation/components/pill_popover.dart';
+import '../../../../core/presentation/surfaces/glow.dart';
 import '../../../../core/presentation/components/press_scale.dart';
 import '../../../../core/utils/budgy_constants.dart';
 import '../../../../core/utils/extensions/context_extensions.dart';
@@ -286,6 +289,28 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
     return result ?? false;
   }
 
+  /// The colour the whole screen is lit by.
+  ///
+  /// ⚠️ Keyed to **direction**, not to the chosen category. It used to follow
+  /// the category, which looked right only by accident: arriving from the home
+  /// screen, Spend and Income happen to default to categories of different
+  /// hues. Toggling direction in place cleared the category, so the tint fell
+  /// through to a single fallback and the room stopped changing at all — the
+  /// one thing the glow exists to show.
+  ///
+  /// Direction is also the better source on its own terms: it is the entry's
+  /// primary fact, it can never be unset, and money leaving versus arriving is
+  /// exactly the distinction worth lighting a room over. The category's own
+  /// colour still appears, in its zone on the terms bar.
+  Color _tint(BuildContext context) {
+    final c = context.budgyColors;
+    return switch (_type) {
+      TransactionType.expense => c.outflow,
+      TransactionType.income => c.inflow,
+      TransactionType.transfer => c.transfer,
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.budgyColors;
@@ -298,237 +323,303 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
     _hydrate(accounts.primary, categories);
 
     final account = accounts.byId(_accountId) ?? accounts.primary;
-    final currency = account?.currency;
-    final category = categoriesState.byId(_subcategoryId ?? _categoryId);
+    final currency = account?.currency ?? _fallbackCurrency;
     final parent = categoriesState.parentOf(_categoryId);
+    final sub = categoriesState.byId(_subcategoryId);
+    final tint = _tint(context);
+    final empty = _amountMinor == 0;
 
     return Scaffold(
       backgroundColor: c.surface100,
-      body: SafeArea(
-        child: Column(
-          children: [
-            // ── Chrome ────────────────────────────────────────────────────
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                BudgyConstants.gutter,
-                8,
-                BudgyConstants.gutter,
-                0,
-              ),
-              child: Row(
-                children: [
-                  BudgyIconButton(
-                    icon: LucideIcons.x,
-                    onTap: () => context.pop(),
-                  ),
-                  const Spacer(),
-                  Text(
-                    _isEditing ? 'Edit entry' : 'New entry',
-                    style: context.textTheme.titleMedium,
-                  ),
-                  const Spacer(),
-                  if (_isEditing)
-                    BudgyIconButton(
-                      icon: LucideIcons.trash2,
-                      iconColor: c.errorMain,
-                      onTap: _delete,
-                    )
-                  else
-                    const SizedBox(width: 44),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 18),
-
-            // ── Direction ─────────────────────────────────────────────────
-            Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: BudgyConstants.gutter,
-              ),
-              child: SegmentedPillTabs(
-                labels: const ['Spent', 'Earned', 'Moved'],
-                index: _type.index,
-                onChanged: (index) => setState(() {
-                  _type = TransactionType.values[index];
-                  // The category sets are disjoint, so a category chosen for
-                  // an expense is meaningless once this becomes income.
-                  // Clearing it is better than silently keeping a "Salary"
-                  // expense.
-                  _categoryId = null;
-                  _subcategoryId = null;
-                }),
-              ),
-            ),
-
-            // ── The amount ────────────────────────────────────────────────
-            Expanded(
-              child: SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: BudgyConstants.gutter,
-                ),
-                child: Column(
-                  children: [
-                    const SizedBox(height: 26),
-                    MoneyText(
-                      _amountMinor,
-                      currency: currency ?? _fallbackCurrency,
-                      size: MoneySize.hero,
-                      showDecimals: _amountText.contains('.'),
-                      color: _amountMinor == 0 ? c.text300 : c.text100,
-                    ).animate(target: _amountMinor == 0 ? 0 : 1).scaleXY(
-                      begin: 0.98,
-                      end: 1,
-                      duration: 180.ms,
+      // ⚠️ The layout does not resize for the system keyboard. The only field
+      // that raises one is the optional label near the top; letting the
+      // keyboard overlay the dial keeps the label visible, where resizing
+      // would compress a column that has no slack to give.
+      resizeToAvoidBottomInset: false,
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: IgnorePointer(
+              child: AnimatedSwitcher(
+                // Cross-faded rather than lerped — the point is that choosing
+                // a category visibly changes the room.
+                duration: const Duration(milliseconds: 450),
+                child: AmbientGlow(
+                  key: ValueKey(tint.toARGB32()),
+                  fadeBottom: 0.44,
+                  blooms: [
+                    AmbientBloom(
+                      // ⚠️ Anchored **above** the top edge and wide, so only
+                      // the falloff is on screen. Centred inside the page a
+                      // bloom resolves as a visible disc — a spotlight parked
+                      // behind the figure — and the eye reads the rim rather
+                      // than the light. Pushed off the top it becomes a wash
+                      // pouring down the page, which is what the header does
+                      // and what makes the two screens feel lit by the same
+                      // source.
+                      color: asLight(tint),
+                      center: const Alignment(0, -1.0),
+                      radius: 1.3,
+                      strength: 0.62,
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      [
-                        if (_type.isTransfer)
-                          '${account?.name ?? '—'} → '
-                              '${accounts.byId(_destinationAccountId)?.name ?? 'pick a wallet'}'
-                        else ...[
-                          category?.name ?? 'Pick a category',
-                          account?.name ?? 'Pick a wallet',
-                        ],
-                        _date.relativeDayLabel,
-                      ].join(' · '),
-                      textAlign: TextAlign.center,
-                      style: context.textTheme.bodyMedium?.copyWith(
-                        color: c.text300,
-                      ),
-                    ),
-
-                    const SizedBox(height: 24),
-
-                    // ── Category rail ─────────────────────────────────────
-                    if (!_type.isTransfer)
-                      _CategoryRail(
-                        categories: categories,
-                        selectedId: _categoryId,
-                        onSelected: (id) => setState(() {
-                          _categoryId = id;
-                          _subcategoryId = null;
-                        }),
-                      ),
-
-                    if (!_type.isTransfer &&
-                        (parent?.hasSubcategories ?? false)) ...[
-                      const SizedBox(height: 10),
-                      _SubcategoryRail(
-                        parent: parent!,
-                        selectedId: _subcategoryId,
-                        onSelected: (id) =>
-                            setState(() => _subcategoryId = id),
-                      ),
-                    ],
-
-                    const SizedBox(height: 16),
-
-                    // ── Title ─────────────────────────────────────────────
-                    TextField(
-                      controller: _titleController,
-                      textCapitalization: TextCapitalization.sentences,
-                      style: context.textTheme.bodyLarge,
-                      decoration: const InputDecoration(
-                        hintText: 'What was it? (optional)',
-                      ),
-                    ),
-
-                    const SizedBox(height: 14),
-
-                    // ── Row of one-tap options ────────────────────────────
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        BudgyChip(
-                          label: account?.name ?? 'Wallet',
-                          icon: LucideIcons.wallet,
-                          dense: true,
-                          onTap: () => _pickAccount(
-                            accounts.live,
-                            onPicked: (id) => setState(() => _accountId = id),
-                            title: _type.isTransfer ? 'From' : 'Wallet',
-                          ),
-                        ),
-                        if (_type.isTransfer)
-                          BudgyChip(
-                            label:
-                                accounts.byId(_destinationAccountId)?.name ??
-                                'To wallet',
-                            icon: LucideIcons.arrowRight,
-                            dense: true,
-                            selected: _destinationAccountId != null,
-                            onTap: () => _pickAccount(
-                              accounts.live
-                                  .where((a) => a.id != _accountId)
-                                  .toList(),
-                              onPicked: (id) =>
-                                  setState(() => _destinationAccountId = id),
-                              title: 'To',
-                            ),
-                          ),
-                        BudgyChip(
-                          label: _date.relativeDayLabel,
-                          icon: LucideIcons.calendar,
-                          dense: true,
-                          onTap: _pickDate,
-                        ),
-                        BudgyChip(
-                          label: _nature.label,
-                          icon: LucideIcons.repeat,
-                          dense: true,
-                          selected: _nature != TransactionNature.standard,
-                          onTap: _pickNature,
-                        ),
-                        _MoreChip(
-                          hasExtras:
-                              _noteController.text.isNotEmpty ||
-                              _goalId != null ||
-                              _budgetIds.isNotEmpty,
-                          onTap: _openExtras,
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 22),
-
-                    AmountKeypad(
-                      text: _amountText,
-                      currency: currency ?? _fallbackCurrency,
-                      onChanged: (value) =>
-                          setState(() => _amountText = value),
-                    ),
-
-                    const SizedBox(height: 8),
                   ],
                 ),
               ),
             ),
+          ),
 
-            // ── Save ──────────────────────────────────────────────────────
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                BudgyConstants.gutter,
-                4,
-                BudgyConstants.gutter,
-                10,
-              ),
-              child: BudgyFilledButton(
-                label: _isEditing ? 'Save changes' : 'Add it',
-                icon: LucideIcons.check,
-                width: double.infinity,
-                disabled: !_canSave,
-                onTap: _save,
-              ),
+          SafeArea(
+            child: Column(
+              children: [
+                // ── Chrome ────────────────────────────────────────────────
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    BudgyConstants.gutter,
+                    6,
+                    BudgyConstants.gutter,
+                    0,
+                  ),
+                  child: Row(
+                    children: [
+                      GlassIconButton(
+                        icon: LucideIcons.x,
+                        onTap: () => context.pop(),
+                      ),
+                      const Spacer(),
+                      if (_isEditing) ...[
+                        GlassIconButton(
+                          icon: LucideIcons.trash2,
+                          iconColor: c.errorMain,
+                          onTap: _delete,
+                        ),
+                        const SizedBox(width: 9),
+                      ],
+                      GlassIconButton(
+                        icon: LucideIcons.ellipsis,
+                        active: _hasExtras,
+                        badge: _hasExtras,
+                        onTap: _openExtras,
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 22),
+
+                // ── Direction, as words ───────────────────────────────────
+                //
+                // ⚠️ No boxes. Three filled cells put three more mid-grey
+                // rectangles on a page that already had five, and on
+                // near-black every one of those costs contrast the figure
+                // needs. Set in type, the live word is simply white and the
+                // other two recede — which is the same amount of information
+                // for none of the ink.
+                _DirectionWords(type: _type, onChanged: _setType),
+
+                // ── The figure ────────────────────────────────────────────
+                //
+                // Left-aligned and enormous. Centred inside a panel it read as
+                // *a result*; ranged left at this size it reads as something
+                // being typed, which is what it is. The panel is gone for the
+                // same reason — boxing a number shrinks it.
+                Expanded(
+                  flex: 5,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: BudgyConstants.gutter,
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _AmountPulse(
+                          value: _amountText,
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.baseline,
+                            textBaseline: TextBaseline.alphabetic,
+                            children: [
+                              if (!_type.isTransfer)
+                                Padding(
+                                  padding: const EdgeInsets.only(right: 6),
+                                  child: Text(
+                                    _type.isIncome ? '+' : '−',
+                                    style: context.textTheme.displayLarge
+                                        ?.copyWith(
+                                          fontSize: 56,
+                                          height: 1,
+                                          color: c.heroInk.withValues(
+                                            alpha: empty ? 0.18 : 0.4,
+                                          ),
+                                        ),
+                                  ),
+                                ),
+                              Flexible(
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  alignment: Alignment.centerLeft,
+                                  child: MoneyText(
+                                    _amountMinor,
+                                    currency: currency,
+                                    size: MoneySize.entry,
+                                    symbolTrailing: true,
+                                    showDecimals: _amountText.contains('.'),
+                                    color: empty
+                                        ? c.heroInk.withValues(alpha: 0.22)
+                                        : c.heroInk,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        _LabelField(
+                          controller: _titleController,
+                          hint: _type.isTransfer
+                              ? 'What was this move for?'
+                              : 'What was it?',
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                // ── The terms, as one bar ─────────────────────────────────
+                //
+                // Five separate coloured orbs were, after the figure, the
+                // loudest thing on the screen — and they are the *least*
+                // important part of an entry. One bar of quiet zones says the
+                // same thing as one object, and each zone still opens its own
+                // panel anchored to itself.
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: BudgyConstants.gutter,
+                  ),
+                  child: _TermsBar(
+                    children: [
+                      if (!_type.isTransfer)
+                        _CategoryTerm(
+                          categories: categories,
+                          selected: categoriesState.byId(_categoryId),
+                          sub: sub,
+                          parent: parent,
+                          onSelected: (id) => setState(() {
+                            _categoryId = id;
+                            _subcategoryId = null;
+                          }),
+                          onSub: (id) => setState(() => _subcategoryId = id),
+                        ),
+                      _WalletTerm(
+                        account: account,
+                        options: accounts.live,
+                        onSelected: (id) => setState(() => _accountId = id),
+                      ),
+                      if (_type.isTransfer)
+                        _WalletTerm(
+                          account: accounts.byId(_destinationAccountId),
+                          fallbackIcon: LucideIcons.arrowRight,
+                          title: 'Into',
+                          options: accounts.live
+                              .where((a) => a.id != _accountId)
+                              .toList(),
+                          onSelected: (id) =>
+                              setState(() => _destinationAccountId = id),
+                        ),
+                      _DateTerm(
+                        date: _date,
+                        onPick: _setDate,
+                        onCustom: _pickDate,
+                      ),
+                      _NatureTerm(nature: _nature, onChanged: _setNature),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 14),
+
+                // ── The dial ──────────────────────────────────────────────
+                Expanded(
+                  flex: 7,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: BudgyConstants.gutter,
+                      vertical: 6,
+                    ),
+                    child: AmountKeypad(
+                      text: _amountText,
+                      currency: currency,
+                      onChanged: (value) => setState(() => _amountText = value),
+                    ),
+                  ),
+                ),
+
+                // ── 4. Commit ─────────────────────────────────────────────
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    BudgyConstants.gutter,
+                    2,
+                    BudgyConstants.gutter,
+                    10,
+                  ),
+                  child: _ConfirmAction(
+                    label: _isEditing ? 'Save changes' : 'Add it',
+                    enabled: _canSave,
+                    glow: tint,
+                    onTap: _save,
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
+
+  /// Switches direction, and re-seeds the category for the new set.
+  ///
+  /// ⚠️ Re-defaulted, not just cleared. The category sets are disjoint, so one
+  /// chosen for an expense is meaningless once this is income — but `_hydrate`
+  /// only ever runs once, so nothing was putting a new one back. Clearing
+  /// alone left the form with no category at all: the terms bar fell to its
+  /// placeholder and the saved row lost its category.
+  void _setType(TransactionType value) {
+    final categories = ref.read(categoriesControllerProvider);
+    setState(() {
+      _type = value;
+      _subcategoryId = null;
+      _categoryId = value.isTransfer
+          ? null
+          : (value.isIncome ? categories.income : categories.expense)
+                .firstOrNull
+                ?.id;
+    });
+  }
+
+  void _setNature(TransactionNature nature) => setState(() {
+    _nature = nature;
+    _isSettled = !nature.needsSettlement;
+    _recurrence = nature.recurs
+        ? (_recurrence ?? const Recurrence(cadence: RecurrenceCadence.monthly))
+        : null;
+  });
+
+  void _setDate(DateTime date) => setState(() {
+    // Keeps the original time of day, so re-dating an entry does not move it
+    // to midnight and reshuffle that day's ordering.
+    _date = DateTime(date.year, date.month, date.day, _date.hour, _date.minute);
+    // A future date cannot be a settled fact.
+    if (_date.isAfter(DateTime.now()) &&
+        _nature == TransactionNature.standard) {
+      _nature = TransactionNature.upcoming;
+      _isSettled = false;
+    }
+  });
+
+  bool get _hasExtras =>
+      _noteController.text.isNotEmpty ||
+      _goalId != null ||
+      _budgetIds.isNotEmpty;
 
   /// Used only while the wallet list is still loading, so the hero has a
   /// currency to format against for a frame. Falls back to the base currency
@@ -538,55 +629,8 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
       ref.read(accountsControllerProvider).live.firstOrNull?.currency ??
       CurrencyRegistry.base;
 
-  Future<void> _pickAccount(
-    List<AccountModel> options, {
-    required void Function(String id) onPicked,
-    required String title,
-  }) => BudgySheet.show<void>(
-    context,
-    builder: (sheetContext) => BudgySheet(
-      title: title,
-      child: Column(
-        children: [
-          for (final account in options)
-            PressScale(
-              onTap: () {
-                onPicked(account.id);
-                Navigator.of(sheetContext).pop();
-              },
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 9),
-                child: Row(
-                  children: [
-                    CategoryGlyph(
-                      colorIndex: account.colorIndex,
-                      iconKey: account.iconKey,
-                      size: 40,
-                    ),
-                    const SizedBox(width: 13),
-                    Expanded(
-                      child: Text(
-                        account.name,
-                        style: context.textTheme.titleMedium,
-                      ),
-                    ),
-                    Text(
-                      account.currencyCode,
-                      style: context.textTheme.labelMedium?.copyWith(
-                        color: context.budgyColors.text300,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-        ],
-      ),
-    ),
-  );
-
   Future<void> _pickDate() async {
-    final picked = await showDatePicker(
+    final picked = await showBudgyDatePicker(
       context: context,
       initialDate: _date,
       // Two years back is plenty for catching up a ledger; a year forward
@@ -595,89 +639,8 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
       lastDate: DateTime(DateTime.now().year + 1, 12, 31),
     );
     if (picked == null) return;
-    setState(() {
-      // Keeps the original time of day, so re-dating an entry does not move
-      // it to midnight and reshuffle that day's ordering.
-      _date = DateTime(
-        picked.year,
-        picked.month,
-        picked.day,
-        _date.hour,
-        _date.minute,
-      );
-      // A future date cannot be a settled fact.
-      if (_date.isAfter(DateTime.now()) &&
-          _nature == TransactionNature.standard) {
-        _nature = TransactionNature.upcoming;
-        _isSettled = false;
-      }
-    });
+    _setDate(picked);
   }
-
-  Future<void> _pickNature() => BudgySheet.show<void>(
-    context,
-    builder: (sheetContext) => BudgySheet(
-      title: 'What kind of entry?',
-      subtitle: 'Changes how Budgy treats it',
-      child: Column(
-        children: [
-          for (final nature in TransactionNature.values)
-            PressScale(
-              onTap: () {
-                setState(() {
-                  _nature = nature;
-                  _isSettled = !nature.needsSettlement;
-                  _recurrence = nature.recurs
-                      ? (_recurrence ??
-                            const Recurrence(
-                              cadence: RecurrenceCadence.monthly,
-                            ))
-                      : null;
-                });
-                Navigator.of(sheetContext).pop();
-              },
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 10),
-                child: Row(
-                  children: [
-                    CategoryGlyph(
-                      colorIndex: 2,
-                      iconKey: nature.iconKey,
-                      size: 38,
-                    ),
-                    const SizedBox(width: 13),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            nature.label,
-                            style: context.textTheme.titleMedium,
-                          ),
-                          const SizedBox(height: 1),
-                          Text(
-                            _natureBlurb(nature),
-                            style: context.textTheme.bodySmall?.copyWith(
-                              color: context.budgyColors.text300,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    if (_nature == nature)
-                      Icon(
-                        LucideIcons.check,
-                        size: 18,
-                        color: context.budgyColors.accent,
-                      ),
-                  ],
-                ),
-              ),
-            ),
-        ],
-      ),
-    ),
-  );
 
   static String _natureBlurb(TransactionNature nature) => switch (nature) {
     TransactionNature.standard => 'Happened. Counts right away.',
@@ -707,114 +670,281 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
 
 // ───────────────────── Pieces ────────────────────────────────────────────────
 
-class _CategoryRail extends StatelessWidget {
-  const _CategoryRail({
-    required this.categories,
-    required this.selectedId,
-    required this.onSelected,
-  });
+/// Direction, set in type rather than in boxes.
+class _DirectionWords extends StatelessWidget {
+  const _DirectionWords({required this.type, required this.onChanged});
 
-  final List<CategoryModel> categories;
-  final String? selectedId;
-  final ValueChanged<String> onSelected;
+  final TransactionType type;
+  final ValueChanged<TransactionType> onChanged;
+
+  static const _labels = {
+    TransactionType.expense: 'Spend',
+    TransactionType.income: 'Income',
+    TransactionType.transfer: 'Move',
+  };
 
   @override
   Widget build(BuildContext context) {
     final c = context.budgyColors;
-    return SizedBox(
-      height: 84,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        physics: const BouncingScrollPhysics(),
-        itemCount: categories.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 10),
-        itemBuilder: (context, index) {
-          final category = categories[index];
-          final active = category.id == selectedId;
-          return PressScale(
-            onTap: () => onSelected(category.id),
-            haptic: HapticLevel.selection,
-            child: SizedBox(
-              width: 68,
-              child: Column(
-                children: [
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    padding: const EdgeInsets.all(3),
-                    decoration: BoxDecoration(
-                      // A selection ring around the live category — a
-                      // mark on a control, not an outline on a surface.
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: active
-                            ? c.categoryAt(category.colorIndex)
-                            : Colors.transparent,
-                        width: 2,
-                      ),
-                    ),
-                    child: CategoryGlyph(
-                      colorIndex: category.colorIndex,
-                      iconKey: category.iconKey,
-                      emoji: category.emoji,
-                      size: 46,
-                      solid: active,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    category.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: context.textTheme.labelMedium?.copyWith(
-                      color: active ? c.text100 : c.text300,
-                      fontSize: 10.5,
-                      letterSpacing: 0,
-                    ),
-                  ),
-                ],
+    final ink = c.heroInk;
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        for (final option in TransactionType.values) ...[
+          if (option != TransactionType.values.first)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: Container(
+                width: 3,
+                height: 3,
+                decoration: BoxDecoration(
+                  color: ink.withValues(alpha: 0.2),
+                  shape: BoxShape.circle,
+                ),
               ),
             ),
-          );
-        },
+          PressScale(
+            onTap: () => onChanged(option),
+            haptic: HapticLevel.selection,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 7),
+              child: AnimatedDefaultTextStyle(
+                duration: const Duration(milliseconds: 200),
+                style:
+                    context.textTheme.titleMedium?.copyWith(
+                      color: ink.withValues(
+                        alpha: option == type ? 0.95 : 0.34,
+                      ),
+                    ) ??
+                    const TextStyle(),
+                child: Text(_labels[option]!),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// The terms of the entry, as one quiet bar of tap zones.
+class _TermsBar extends StatelessWidget {
+  const _TermsBar({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.budgyColors;
+    return Container(
+      height: 62,
+      padding: const EdgeInsets.all(5),
+      decoration: BoxDecoration(
+        color: c.heroInk.withValues(alpha: 0.055),
+        borderRadius: BorderRadius.circular(22),
+      ),
+      child: Row(
+        children: [
+          for (var i = 0; i < children.length; i++) ...[
+            // A hairline between zones *inside one surface* — the sanctioned
+            // use of `divider`. It is not an outline around anything.
+            if (i > 0)
+              Container(
+                width: 1,
+                margin: const EdgeInsets.symmetric(vertical: 11),
+                color: c.heroInk.withValues(alpha: 0.07),
+              ),
+            Expanded(child: children[i]),
+          ],
+        ],
       ),
     );
   }
 }
 
-class _SubcategoryRail extends StatelessWidget {
-  const _SubcategoryRail({
-    required this.parent,
-    required this.selectedId,
-    required this.onSelected,
+/// One zone of [_TermsBar]: a small glyph over a short label, lit when it
+/// holds a real choice rather than a standing default.
+class _Zone extends StatelessWidget {
+  const _Zone({
+    required this.label,
+    required this.isOpen,
+    required this.set,
+    this.icon,
+    this.emoji,
+    this.tint,
   });
 
-  final CategoryModel parent;
-  final String? selectedId;
-  final ValueChanged<String?> onSelected;
+  final String label;
+  final bool isOpen;
+
+  /// A real choice has been made, as opposed to a default still standing.
+  final bool set;
+
+  final IconData? icon;
+  final String? emoji;
+  final Color? tint;
 
   @override
   Widget build(BuildContext context) {
     final c = context.budgyColors;
-    return SizedBox(
-      height: 34,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        physics: const BouncingScrollPhysics(),
+    final ink = c.heroInk;
+    final hue = tint ?? c.accent;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      decoration: BoxDecoration(
+        color: isOpen ? ink.withValues(alpha: 0.12) : Colors.transparent,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          for (final sub in parent.subcategories)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: BudgyChip(
-                label: sub.name,
-                dense: true,
-                tint: c.categoryAt(parent.colorIndex),
-                selected: sub.id == selectedId,
-                // Tapping the live subcategory clears it — the parent on its
-                // own is a valid choice, and without this there is no way
-                // back to it.
-                onTap: () => onSelected(sub.id == selectedId ? null : sub.id),
+          if (emoji != null)
+            Text(emoji!, style: const TextStyle(fontSize: 15))
+          else
+            Icon(
+              icon,
+              size: 16,
+              color: set ? hue : ink.withValues(alpha: 0.45),
+            ),
+          const SizedBox(height: 3),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: context.textTheme.bodySmall?.copyWith(
+              fontSize: 10.5,
+              color: ink.withValues(alpha: set ? 0.8 : 0.45),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CategoryTerm extends StatelessWidget {
+  const _CategoryTerm({
+    required this.categories,
+    required this.selected,
+    required this.sub,
+    required this.parent,
+    required this.onSelected,
+    required this.onSub,
+  });
+
+  final List<CategoryModel> categories;
+  final CategoryModel? selected;
+  final CategoryModel? sub;
+  final CategoryModel? parent;
+  final ValueChanged<String> onSelected;
+  final ValueChanged<String?> onSub;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.budgyColors;
+    final leaf = sub ?? selected;
+
+    return PillPopover(
+      panelWidth: 280,
+      pill: (context, isOpen) => _Zone(
+        label: leaf?.name ?? 'Category',
+        emoji: selected?.emoji,
+        icon: LucideIcons.shapes,
+        tint: selected == null ? null : c.categoryAt(selected!.colorIndex),
+        set: selected != null,
+        isOpen: isOpen,
+      ),
+      panel: (context, close) => _Panel(
+        title: 'Category',
+        children: [
+          for (final category in categories) ...[
+            _Option(
+              label: category.name,
+              emoji: category.emoji,
+              icon: BudgyIcons.resolve(category.iconKey),
+              tint: c.categoryAt(category.colorIndex),
+              selected: category.id == selected?.id,
+              onTap: () {
+                onSelected(category.id);
+                close();
+              },
+            ),
+            // The live category's subcategories open **in place**, so picking
+            // "Coffee" is one gesture rather than a second trip through a
+            // second control.
+            if (category.id == selected?.id && category.hasSubcategories)
+              Padding(
+                padding: const EdgeInsets.only(left: 22, bottom: 4),
+                child: Column(
+                  children: [
+                    for (final subcategory in category.subcategories)
+                      _Option(
+                        label: subcategory.name,
+                        tint: c.categoryAt(category.colorIndex),
+                        selected: subcategory.id == sub?.id,
+                        onTap: () {
+                          onSub(
+                            subcategory.id == sub?.id ? null : subcategory.id,
+                          );
+                          close();
+                        },
+                      ),
+                  ],
+                ),
               ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _WalletTerm extends StatelessWidget {
+  const _WalletTerm({
+    required this.account,
+    required this.options,
+    required this.onSelected,
+    this.fallbackIcon,
+    this.title = 'Wallet',
+  });
+
+  final AccountModel? account;
+  final List<AccountModel> options;
+  final ValueChanged<String> onSelected;
+  final IconData? fallbackIcon;
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.budgyColors;
+    return PillPopover(
+      panelWidth: 260,
+      pill: (context, isOpen) => _Zone(
+        label: account?.name ?? title,
+        icon: account == null
+            ? (fallbackIcon ?? LucideIcons.wallet)
+            : BudgyIcons.resolve(account!.iconKey),
+        tint: account == null ? null : c.categoryAt(account!.colorIndex),
+        set: account != null,
+        isOpen: isOpen,
+      ),
+      panel: (context, close) => _Panel(
+        title: title,
+        children: [
+          for (final option in options)
+            _Option(
+              label: option.name,
+              sublabel: option.currency.name,
+              icon: BudgyIcons.resolve(option.iconKey),
+              tint: c.categoryAt(option.colorIndex),
+              selected: option.id == account?.id,
+              onTap: () {
+                onSelected(option.id);
+                close();
+              },
             ),
         ],
       ),
@@ -822,20 +952,421 @@ class _SubcategoryRail extends StatelessWidget {
   }
 }
 
-class _MoreChip extends StatelessWidget {
-  const _MoreChip({required this.hasExtras, required this.onTap});
+class _DateTerm extends StatelessWidget {
+  const _DateTerm({
+    required this.date,
+    required this.onPick,
+    required this.onCustom,
+  });
 
-  final bool hasExtras;
-  final VoidCallback onTap;
+  final DateTime date;
+  final ValueChanged<DateTime> onPick;
+  final VoidCallback onCustom;
 
   @override
-  Widget build(BuildContext context) => BudgyChip(
-    label: hasExtras ? 'More · set' : 'More',
-    icon: LucideIcons.ellipsis,
-    dense: true,
-    selected: hasExtras,
-    onTap: onTap,
+  Widget build(BuildContext context) {
+    final c = context.budgyColors;
+    final today = DateTime.now();
+    // Five days back covers catching up after a weekend, which is what almost
+    // every re-dated entry actually is. Anything older goes to the picker.
+    final quick = [
+      for (var i = 0; i < 5; i++) today.subtract(Duration(days: i)),
+    ];
+
+    return PillPopover(
+      panelWidth: 230,
+      pill: (context, isOpen) => _Zone(
+        label: date.relativeDayLabel,
+        icon: LucideIcons.calendar,
+        tint: c.accent,
+        // Today is the standing default, so the zone only lights once the date
+        // has actually been moved.
+        set: !date.isToday,
+        isOpen: isOpen,
+      ),
+      panel: (context, close) => _Panel(
+        title: 'When',
+        children: [
+          for (final day in quick)
+            _Option(
+              label: day.relativeDayLabel,
+              selected: day.isSameDay(date),
+              onTap: () {
+                onPick(day);
+                close();
+              },
+            ),
+          _Option(
+            label: 'Pick a date…',
+            icon: LucideIcons.calendarDays,
+            tint: c.accent,
+            selected: false,
+            onTap: () {
+              close();
+              onCustom();
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NatureTerm extends StatelessWidget {
+  const _NatureTerm({required this.nature, required this.onChanged});
+
+  final TransactionNature nature;
+  final ValueChanged<TransactionNature> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.budgyColors;
+    final standard = nature == TransactionNature.standard;
+
+    return PillPopover(
+      panelWidth: 290,
+      pill: (context, isOpen) => _Zone(
+        label: standard ? 'One-off' : nature.label,
+        icon: BudgyIcons.resolve(nature.iconKey),
+        tint: c.accent,
+        set: !standard,
+        isOpen: isOpen,
+      ),
+      panel: (context, close) => _Panel(
+        title: 'Kind of entry',
+        children: [
+          for (final option in TransactionNature.values)
+            _Option(
+              label: option.label,
+              sublabel: _TransactionFormPageState._natureBlurb(option),
+              icon: BudgyIcons.resolve(option.iconKey),
+              tint: c.accent,
+              selected: option == nature,
+              onTap: () {
+                onChanged(option);
+                close();
+              },
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A row inside a panel.
+class _Option extends StatelessWidget {
+  const _Option({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.sublabel,
+    this.icon,
+    this.emoji,
+    this.tint,
+  });
+
+  final String label;
+  final String? sublabel;
+  final bool selected;
+  final VoidCallback onTap;
+  final IconData? icon;
+  final String? emoji;
+  final Color? tint;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.budgyColors;
+    final ink = c.heroInk;
+    final hue = tint ?? c.accent;
+
+    return PressScale(
+      onTap: onTap,
+      haptic: HapticLevel.selection,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        decoration: BoxDecoration(
+          color: selected ? ink.withValues(alpha: 0.10) : Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          children: [
+            if (icon != null || emoji != null) ...[
+              Container(
+                width: 32,
+                height: 32,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: hue.withValues(alpha: selected ? 0.9 : 0.18),
+                  shape: BoxShape.circle,
+                ),
+                child: emoji != null
+                    ? Text(emoji!, style: const TextStyle(fontSize: 15))
+                    : Icon(
+                        icon,
+                        size: 15,
+                        color: selected ? Colors.white : hue,
+                      ),
+              ),
+              const SizedBox(width: 11),
+            ],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: context.textTheme.titleSmall?.copyWith(color: ink),
+                  ),
+                  if (sublabel != null)
+                    Text(
+                      sublabel!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: context.textTheme.bodySmall?.copyWith(
+                        color: ink.withValues(alpha: 0.5),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            if (selected) Icon(LucideIcons.check, size: 17, color: c.accent),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Shared chrome for a panel's contents.
+class _Panel extends StatelessWidget {
+  const _Panel({required this.title, required this.children});
+
+  final String title;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.budgyColors;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 14, 10, 10),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 10, bottom: 8),
+            child: Text(
+              title.toUpperCase(),
+              style: context.textTheme.labelSmall?.copyWith(
+                color: c.heroInk.withValues(alpha: 0.45),
+              ),
+            ),
+          ),
+          Flexible(
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              child: Column(mainAxisSize: MainAxisSize.min, children: children),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The commit.
+///
+/// ## Why it is not a full-width bar
+///
+/// Everything else on this screen is a circle, a word, or one soft bar — and a
+/// full-width rectangle landing under a circular dial broke that outright. It
+/// was also carrying real weight while **disabled**, which is weight that means
+/// nothing: a dead grey slab anchoring the bottom of a screen you have not
+/// given an amount to yet.
+///
+/// So it is a capsule, sized to its own words, and it is simply **not there**
+/// until there is something to commit. The slot keeps its height either way —
+/// the dial must not jump when the first digit lands — and the action arrives
+/// by scaling in, which turns "you can save now" into something you see rather
+/// than something you have to notice.
+///
+/// White fill, because white is this app's single-primary-action colour
+/// everywhere. The **glow** takes the direction's hue instead, so the one
+/// chromatic halo on the page belongs to the same light as the room.
+class _ConfirmAction extends StatelessWidget {
+  const _ConfirmAction({
+    required this.label,
+    required this.enabled,
+    required this.glow,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool enabled;
+  final Color glow;
+  final VoidCallback onTap;
+
+  static const double _height = 58;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.budgyColors;
+
+    return SizedBox(
+      height: _height,
+      child: Center(
+        child: IgnorePointer(
+          ignoring: !enabled,
+          child: AnimatedScale(
+            scale: enabled ? 1 : 0.86,
+            duration: const Duration(milliseconds: 260),
+            curve: Curves.easeOutBack,
+            child: AnimatedOpacity(
+              opacity: enabled ? 1 : 0,
+              duration: const Duration(milliseconds: 200),
+              child: PressScale(
+                onTap: onTap,
+                haptic: HapticLevel.medium,
+                borderRadius: BorderRadius.circular(_height / 2),
+                child: Container(
+                  height: _height,
+                  padding: const EdgeInsets.symmetric(horizontal: 30),
+                  decoration: BoxDecoration(
+                    color: c.primary,
+                    borderRadius: BorderRadius.circular(_height / 2),
+                    boxShadow: [
+                      BoxShadow(
+                        color: glow.withValues(alpha: 0.45),
+                        blurRadius: 30,
+                        spreadRadius: -6,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(LucideIcons.check, size: 19, color: c.primaryInk),
+                      const SizedBox(width: 9),
+                      Text(
+                        label,
+                        style: context.textTheme.labelLarge?.copyWith(
+                          color: c.primaryInk,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A short scale kick each time the amount changes.
+///
+/// The pad already answers a press with a haptic; this is the same
+/// acknowledgement for the eye, on the element the eye is actually on. Kept
+/// under 4% and 140ms — at any more it reads as the number wobbling, and the
+/// whole point is that entering an amount feels *solid*.
+class _AmountPulse extends StatefulWidget {
+  const _AmountPulse({required this.value, required this.child});
+
+  final String value;
+  final Widget child;
+
+  @override
+  State<_AmountPulse> createState() => _AmountPulseState();
+}
+
+class _AmountPulseState extends State<_AmountPulse>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 140),
+    lowerBound: 0,
+    upperBound: 1,
   );
+
+  @override
+  void didUpdateWidget(_AmountPulse old) {
+    super.didUpdateWidget(old);
+    // Only on a real change. Rebuilds happen for every other field on this
+    // screen, and a figure that twitches when you pick a wallet is noise.
+    if (old.value != widget.value) _controller.forward(from: 0);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: _controller,
+    builder: (context, child) {
+      // Out and back within the one pass, so there is no settle frame where
+      // the figure sits at the wrong size waiting to be released.
+      final t = _controller.value;
+      final kick = (t < 0.5 ? t / 0.5 : (1 - t) / 0.5);
+      return Transform.scale(
+        scale: 1 + 0.035 * Curves.easeOut.transform(kick),
+        child: child,
+      );
+    },
+    child: widget.child,
+  );
+}
+
+/// The label, as a line of the composition rather than a form field.
+///
+/// A filled 56pt input under the figure made the one *optional* field the
+/// second-loudest object on the screen. Borderless and centred, it reads as a
+/// caption under the amount — present, obviously editable, and quiet until it
+/// has something in it.
+class _LabelField extends StatelessWidget {
+  const _LabelField({required this.controller, required this.hint});
+
+  final TextEditingController controller;
+  final String hint;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.budgyColors;
+    return TextField(
+      controller: controller,
+      // Ranged left, on the figure's own axis. Centred under a left-aligned
+      // number it read as a caption for the whole screen rather than as this
+      // entry's label.
+      textAlign: TextAlign.start,
+      textCapitalization: TextCapitalization.sentences,
+      textInputAction: TextInputAction.done,
+      cursorColor: c.accent,
+      style: context.textTheme.bodyLarge?.copyWith(
+        color: c.heroInk.withValues(alpha: 0.85),
+      ),
+      decoration: InputDecoration(
+        isDense: true,
+        filled: false,
+        contentPadding: EdgeInsets.zero,
+        border: InputBorder.none,
+        enabledBorder: InputBorder.none,
+        focusedBorder: InputBorder.none,
+        hintText: hint,
+        hintStyle: context.textTheme.bodyLarge?.copyWith(
+          color: c.heroInk.withValues(alpha: 0.35),
+        ),
+      ),
+    );
+  }
 }
 
 /// The things most entries never need: a note, a goal, an added budget, a
@@ -928,9 +1459,7 @@ class _ExtrasSheet extends ConsumerWidget {
               const SizedBox(height: 20),
               Text(
                 'REPEATS',
-                style: context.textTheme.labelSmall?.copyWith(
-                  color: c.text300,
-                ),
+                style: context.textTheme.labelSmall?.copyWith(color: c.text300),
               ),
               const SizedBox(height: 10),
               Wrap(
@@ -954,9 +1483,7 @@ class _ExtrasSheet extends ConsumerWidget {
               const SizedBox(height: 20),
               Text(
                 'COUNTS TOWARD A GOAL',
-                style: context.textTheme.labelSmall?.copyWith(
-                  color: c.text300,
-                ),
+                style: context.textTheme.labelSmall?.copyWith(color: c.text300),
               ),
               const SizedBox(height: 10),
               Wrap(
@@ -983,16 +1510,12 @@ class _ExtrasSheet extends ConsumerWidget {
               const SizedBox(height: 20),
               Text(
                 'ADD TO A BUDGET',
-                style: context.textTheme.labelSmall?.copyWith(
-                  color: c.text300,
-                ),
+                style: context.textTheme.labelSmall?.copyWith(color: c.text300),
               ),
               const SizedBox(height: 6),
               Text(
                 'These budgets only count what you hand them.',
-                style: context.textTheme.bodySmall?.copyWith(
-                  color: c.text300,
-                ),
+                style: context.textTheme.bodySmall?.copyWith(color: c.text300),
               ),
               const SizedBox(height: 10),
               Wrap(

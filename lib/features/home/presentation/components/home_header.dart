@@ -137,8 +137,8 @@ class _HomeHeaderState extends ConsumerState<HomeHeader> {
                     child: ScoopButton(
                       icon: LucideIcons.arrowUpRight,
                       label: 'Spend',
-                      fill: c.primary,
-                      ink: c.primaryInk,
+                      fill: c.surface200,
+                      ink: c.text100,
                       onTap: () => context.pushNamed(
                         'new-transaction',
                         extra: TransactionPrefill(
@@ -153,8 +153,8 @@ class _HomeHeaderState extends ConsumerState<HomeHeader> {
                     child: ScoopButton(
                       icon: LucideIcons.arrowDownLeft,
                       label: 'Income',
-                      fill: c.primary,
-                      ink: c.primaryInk,
+                      fill: c.surface200,
+                      ink: c.text100,
                       onTap: () => context.pushNamed(
                         'new-transaction',
                         extra: TransactionPrefill(
@@ -169,8 +169,8 @@ class _HomeHeaderState extends ConsumerState<HomeHeader> {
                     child: ScoopButton(
                       icon: LucideIcons.arrowLeftRight,
                       label: 'Move',
-                      fill: c.primary,
-                      ink: c.primaryInk,
+                      fill: c.surface200,
+                      ink: c.text100,
                       onTap: () => context.pushNamed(
                         'new-transaction',
                         extra: TransactionPrefill(

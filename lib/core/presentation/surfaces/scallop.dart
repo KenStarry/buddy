@@ -324,6 +324,20 @@ class ScoopButton extends StatelessWidget {
               height: height,
               child: ScoopedSurface(
                 color: fill,
+                // ⚠️ A pane gradient and an edge specular, derived from the
+                // fill rather than hard-coded. On near-black a surface cannot
+                // be painted *darker* to say "raised", so elevation is carried
+                // entirely by the light along the top edge — remove these and
+                // a surface-filled button flattens into the page it sits on.
+                // Tracing the scooped path means the highlight follows the
+                // notch too, which is what makes the glyph look like it is
+                // resting in a dish rather than floating over a cut-out.
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Color.lerp(fill, Colors.white, 0.11)!, fill],
+                ),
+                specular: 0.24,
                 radius: radius,
                 notchCenters: const [0.5],
                 notchWidth: notchWidth,

@@ -11,6 +11,10 @@ import '../../utils/functions/money_format.dart';
 
 /// How prominent an amount is.
 enum MoneySize {
+  /// The amount being typed on the entry screen. The largest figure in the
+  /// app, because it is the only thing on that screen anyone came to do.
+  entry,
+
   /// The home headline. 48pt — a hero figure, per the data-viz rule that a
   /// dashboard's lead number is a *figure*, not a one-bar chart.
   hero,
@@ -102,6 +106,11 @@ class MoneyText extends ConsumerWidget {
     final ink = color ?? c.text100;
 
     final base = switch (size) {
+      MoneySize.entry => context.textTheme.displayLarge!.copyWith(
+        fontSize: 88,
+        height: 1,
+        letterSpacing: -3.6,
+      ),
       MoneySize.hero => context.textTheme.displayLarge!.copyWith(fontSize: 48),
       MoneySize.display => context.textTheme.displayMedium!,
       MoneySize.title => context.textTheme.headlineMedium!,
@@ -123,6 +132,7 @@ class MoneyText extends ConsumerWidget {
     // figure's size and at 70% alpha. The ratio tightens as the figure
     // shrinks — at row scale a 0.6× symbol is simply too small to read.
     final satelliteRatio = switch (size) {
+      MoneySize.entry => 0.24,
       MoneySize.hero => 0.42,
       MoneySize.display => 0.46,
       MoneySize.title => 0.6,
@@ -130,7 +140,12 @@ class MoneyText extends ConsumerWidget {
     };
     final satellite = style.copyWith(
       fontSize: (style.fontSize ?? 16) * satelliteRatio,
-      color: ink.withValues(alpha: 0.7),
+      // ⚠️ **Scaled**, not set. `withValues(alpha: 0.7)` replaces the channel,
+      // so a caller passing a translucent ink — a placeholder amount at 22%,
+      // a muted row — got a currency symbol at 70% against a figure at 22%:
+      // the label louder than the number it labels. Multiplying keeps the
+      // satellite a step below whatever ink it was handed.
+      color: ink.withValues(alpha: ink.a * 0.7),
       letterSpacing: 0,
     );
 

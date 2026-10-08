@@ -77,11 +77,16 @@ class _BudgyFilledButtonState extends State<BudgyFilledButton> {
   @override
   Widget build(BuildContext context) {
     final c = context.budgyColors;
+    // ⚠️ Disabled is **glass**, not a surface step. `surface300` on a dark page
+    // paints a solid slab that is lighter than the page around it, so a button
+    // that cannot be pressed ends up looking heavier than one that can —
+    // waiting weight at the bottom of the screen. Translucent ink recedes
+    // instead, which is what "not yet" should look like.
     final fill = widget.disabled
-        ? c.surface300
+        ? c.heroInk.withValues(alpha: 0.07)
         : (widget.background ?? c.primary);
     final ink = widget.disabled
-        ? c.text300
+        ? c.heroInk.withValues(alpha: 0.32)
         : (widget.foreground ?? c.primaryInk);
 
     return GestureDetector(
