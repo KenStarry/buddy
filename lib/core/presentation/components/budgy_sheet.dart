@@ -64,62 +64,110 @@ class BudgySheet extends StatelessWidget {
       child: child,
     );
 
-    return Container(
-      decoration: BoxDecoration(
-        color: c.surface100,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const SizedBox(height: 10),
-          Container(
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: c.divider,
-              borderRadius: BorderRadius.circular(2),
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+      child: CustomPaint(
+        foregroundPainter: _SheetEdge(),
+        child: DecoratedBox(
+          // ⚠️ A step **above** the page, not equal to it. `surface100` made the
+          // sheet exactly the colour of the screen behind it, so its only edge
+          // was the scrim — and on a near-black page a dimmed black against
+          // black is barely an edge at all. Raised one rung and lit along the
+          // top, it reads as a surface arriving over the page.
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Color.lerp(c.surface300, c.heroInk, 0.04)!,
+                c.surface200,
+              ],
             ),
           ),
-          if (title != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(title!, style: context.textTheme.titleLarge),
-                        if (subtitle != null) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            subtitle!,
-                            style: context.textTheme.bodySmall?.copyWith(
-                              color: c.text300,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 10),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: c.heroInk.withValues(alpha: 0.22),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              if (title != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(title!, style: context.textTheme.titleLarge),
+                            if (subtitle != null) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                subtitle!,
+                                style: context.textTheme.bodySmall?.copyWith(
+                                  color: c.text300,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      ?trailing,
+                    ],
                   ),
-                  ?trailing,
-                ],
-              ),
-            ),
-          const SizedBox(height: 18),
-          if (scrollable)
-            Flexible(
-              child: SingleChildScrollView(
-                physics: const ClampingScrollPhysics(),
-                child: body,
-              ),
-            )
-          else
-            body,
-        ],
+                ),
+              const SizedBox(height: 18),
+              if (scrollable)
+                Flexible(
+                  child: SingleChildScrollView(
+                    physics: const ClampingScrollPhysics(),
+                    child: body,
+                  ),
+                )
+              else
+                body,
+            ],
+          ),
+        ),
       ),
     );
   }
+}
+
+/// The light along the sheet's top edge — a specular, not a border. It fades
+/// out well before the shoulders and never closes around the shape.
+class _SheetEdge extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+    canvas.drawRRect(
+      RRect.fromRectAndCorners(
+        Rect.fromLTWH(0.6, 0.6, size.width - 1.2, size.height),
+        topLeft: const Radius.circular(30),
+        topRight: const Radius.circular(30),
+      ),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Colors.white.withValues(alpha: 0.26),
+            Colors.white.withValues(alpha: 0),
+          ],
+          stops: const [0, 0.22],
+        ).createShader(Offset.zero & size),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_SheetEdge old) => false;
 }

@@ -99,27 +99,36 @@ class MoneyText extends ConsumerWidget {
 
   final FontWeight? weight;
 
+  /// The type ramp, exposed so anything that renders a figure *without* going
+  /// through this widget — `AmountField`, which needs a caret between the
+  /// glyphs — still sits on the same scale instead of re-declaring it and
+  /// drifting.
+  static TextStyle baseStyle(
+    BuildContext context,
+    MoneySize size,
+  ) => switch (size) {
+    MoneySize.entry => context.textTheme.displayLarge!.copyWith(
+      fontSize: 88,
+      height: 1,
+      letterSpacing: -3.6,
+    ),
+    MoneySize.hero => context.textTheme.displayLarge!.copyWith(fontSize: 48),
+    MoneySize.display => context.textTheme.displayMedium!,
+    MoneySize.title => context.textTheme.headlineMedium!,
+    MoneySize.row => context.textTheme.headlineSmall!.copyWith(fontSize: 16),
+    MoneySize.small => context.textTheme.titleSmall!.copyWith(
+      fontFamily: 'Sora',
+      fontFeatures: const [ui.FontFeature.tabularFigures()],
+    ),
+  };
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final hidden = ref.watch(settingsControllerProvider).hideAmounts;
     final c = context.budgyColors;
     final ink = color ?? c.text100;
 
-    final base = switch (size) {
-      MoneySize.entry => context.textTheme.displayLarge!.copyWith(
-        fontSize: 88,
-        height: 1,
-        letterSpacing: -3.6,
-      ),
-      MoneySize.hero => context.textTheme.displayLarge!.copyWith(fontSize: 48),
-      MoneySize.display => context.textTheme.displayMedium!,
-      MoneySize.title => context.textTheme.headlineMedium!,
-      MoneySize.row => context.textTheme.headlineSmall!.copyWith(fontSize: 16),
-      MoneySize.small => context.textTheme.titleSmall!.copyWith(
-        fontFamily: 'Sora',
-        fontFeatures: const [ui.FontFeature.tabularFigures()],
-      ),
-    };
+    final base = baseStyle(context, size);
     final style = base.copyWith(
       color: ink,
       fontWeight: weight,
@@ -185,8 +194,7 @@ class MoneyText extends ConsumerWidget {
             )
           else
             Text(parts.whole, style: style),
-          if (parts.fraction.isNotEmpty)
-            Text(parts.fraction, style: satellite),
+          if (parts.fraction.isNotEmpty) Text(parts.fraction, style: satellite),
           if (showSymbol && symbolTrailing) ...[
             gap,
             Text(parts.symbol, style: satellite),
@@ -254,8 +262,11 @@ class MoneyDelta extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(up ? Icons.arrow_upward : Icons.arrow_downward,
-              size: 11, color: tint),
+          Icon(
+            up ? Icons.arrow_upward : Icons.arrow_downward,
+            size: 11,
+            color: tint,
+          ),
           const SizedBox(width: 3),
           Text(
             label ?? '$pct%',

@@ -210,6 +210,28 @@ Ranged left matters: centred, a figure reads as *a result*; ranged left at this
 size it reads as something being typed, which is what it is. The optional label
 sits on the same axis for the same reason.
 
+**Sheets are a step above the page, and lit.** `BudgySheet` used to fill with
+`surface100` — exactly the colour of the screen behind it — so its only edge
+was the scrim, and on near-black a dimmed black against black is barely an edge.
+It is raised a rung with a specular along its top, like every other surface that
+arrives over something.
+
+**One switch, one option row, app-wide.** `BudgySwitch` / `BudgyToggleTile`
+replaced six `SwitchListTile.adaptive`, which is two different controls — a
+Material one on Android, a Cupertino one on iOS — and neither is this app. On a
+near-black page the Cupertino track in particular renders a bright grey that
+reads as *on* when it is off. `OptionRow` is the house "pick one of these" row,
+shared between the entry screen's anchored panels and the extras sheet, so a
+goal chosen in a sheet and a wallet chosen in a popover look like the same act.
+
+⚠️ Inside `BudgyToggleTile` the switch is wrapped in `IgnorePointer`: the whole
+row is the target, and a nested tap target would swallow the press on the one
+part of the row people actually aim at.
+
+⚠️ The extras sheet carries an explicit **"Not toward a goal"** row. Without it
+the only way to undo a goal is to tap the chosen one again — a toggle hidden
+inside what looks like a single-choice list.
+
 **The commit is a capsule that is not there until there is something to
 commit.** Everything else on the entry screen is a circle, a word or one soft
 bar; a full-width rectangle landing under a circular dial broke that outright,
@@ -247,12 +269,63 @@ almost entirely painted over. Reach for `BackdropFilter` when there is
 genuinely something behind worth refracting (the header's ghost accounts over
 `AmbientGlow`); everywhere else it is cost with no picture.
 
-**The pad is a dial, not a keyboard.** Circular glass keys sized to a thumb and
-centred, rather than twelve full-width slabs filling the bottom half of a
-screen whose entire point is one enormous number. A disc is the oldest "press
-here" there is, so the affordance costs less ink, and the contrast budget goes
-to the figure. Press is a radial bloom from the centre plus a scale — a fill
-swap reads as a state change, a bloom reads as *lighting up*.
+**The pad is a dial, and a calculator.** Circular glass keys sized to a thumb
+rather than twelve full-width slabs filling the bottom of a screen whose entire
+point is one enormous number. A disc is the oldest "press here" there is, so the
+affordance costs less ink and the contrast budget goes to the figure. Press is a
+radial bloom from the centre plus a scale — a fill swap reads as a state change,
+a bloom reads as *lighting up*.
+
+A fourth column carries `÷ × − +`. Multiplication and division are not padding:
+"three coffees at 250" and "split the 1,200 bill four ways" are the two sums
+people do in their head before opening the app, and getting them wrong is how a
+ledger quietly stops matching reality.
+
+**The figure is an input field, caret and all.** `AmountField` renders the
+formatted amount itself and draws a caret at an index, rather than wrapping a
+`TextField` — which formats nothing, wants the system keyboard, and brings a
+selection model far beyond "where does the next digit land". Tapping a digit's
+left or right half places the caret either side of it, so an amount can be
+corrected in the middle instead of backspaced to death.
+
+⚠️ `caret` indexes the **raw** operand (`1250`), never the formatted display
+(`1,250`). Group separators are display-only and deliberately not caret
+positions or tap targets: a caret that could sit either side of a comma has two
+positions meaning the same edit, and the keypad would have to understand commas
+it never produced. A caret at raw index 1 therefore renders `1,|250`.
+
+⚠️ The caret is positioned inside a **full line-box against cap height**, not
+by baseline. The figure's Row aligns on the alphabetic baseline and a bare
+container reports none, so the caret fell back to the top of the line and
+floated ~15pt above the digits. Digits have no descenders, so cap height is
+what a caret should centre on.
+
+**The pad emits keys; the text owns the rules.** With a caret in play every
+edit is an insertion *somewhere*, so the decimal, leading-zero and length rules
+became rules about the string rather than about the key — they live in
+`applyAmountKey`, which is pure and under test
+(`test/money/amount_entry_test.dart`). ⚠️ The fraction cap must only bite when
+inserting *after* the point: refusing a digit typed at the front of `19.99`
+would block editing the whole part of any amount that already has two decimals.
+
+⚠️ **There is no `=`, by design.** The figure always shows *what would be saved
+right now* — with an operation pending it is the running result, not the operand
+being typed — so `1,250 + 340` reads 1,590 the moment the last digit lands. That
+removes a key, removes any state where the display and the saved value disagree,
+and removes the commonest calculator mistake: pressing save before pressing
+equals. A small line above the figure shows what is pending, because otherwise
+the figure silently changes meaning the moment an operator is pressed.
+
+⚠️ Two traps this cost me. `active: op == activeOp` makes **every digit key
+active** when nothing is pending, because both sides are `null` — guard with
+`op != null &&`. And a `BoxDecoration` with `gradient` set ignores `color`, so a
+state that skips the gradient must set `color` itself or it renders as nothing
+at all.
+
+Division by zero returns the left operand unchanged: the divisor is read live
+while being typed, so anyone reaching for "÷ 40" passes through "÷ 0", and a
+figure that flashes `Infinity` is both alarming and a crash once it reaches
+`toMinor`.
 
 `MoneySize.entry` (62pt) exists for that figure, which is the largest in the
 app because it is the only thing the screen is for. It kicks 3.5% on each

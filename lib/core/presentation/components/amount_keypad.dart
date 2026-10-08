@@ -7,6 +7,44 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../domain/currency.dart';
 import '../../utils/extensions/context_extensions.dart';
 
+/// The four operations a budget actually needs.
+///
+/// Multiplication and division are not padding: "three coffees at 250" and
+/// "split the 1,200 bill four ways" are the two sums people most often do in
+/// their head before opening the app, and getting them wrong is how a ledger
+/// quietly stops matching reality.
+enum CalcOp {
+  add('+'),
+  subtract('−'),
+  multiply('×'),
+  divide('÷');
+
+  const CalcOp(this.glyph);
+
+  final String glyph;
+
+  static CalcOp? fromGlyph(String glyph) {
+    for (final op in values) {
+      if (op.glyph == glyph) return op;
+    }
+    return null;
+  }
+
+  /// Applies this operation, left to right.
+  ///
+  /// ⚠️ Division by zero returns [left] unchanged rather than infinity or NaN.
+  /// The divisor is read live while it is being typed, so a user reaching for
+  /// "÷ 40" passes through "÷ 0" on the way — and a figure that flashes
+  /// `Infinity` mid-keystroke is both alarming and, once formatted into minor
+  /// units, a crash.
+  double apply(double left, double right) => switch (this) {
+    CalcOp.add => left + right,
+    CalcOp.subtract => left - right,
+    CalcOp.multiply => left * right,
+    CalcOp.divide => right == 0 ? left : left / right,
+  };
+}
+
 /// The amount entry pad.
 ///
 /// ## Why a custom pad and not a `TextField`
@@ -25,7 +63,16 @@ import '../../utils/extensions/context_extensions.dart';
 /// the point vanishes as fast as it is typed and the next digit lands in the
 /// whole part. The pad owns the raw text and only parses on commit.
 ///
-/// ## Why the keys are circles, and why the pad is narrow
+/// ## Why there is no `=`
+///
+/// The figure always shows **what would be saved right now**: with an operation
+/// pending it is the running result, not the operand being typed. So
+/// `1,250 + 340` reads 1,590 the moment the last digit lands, and there is
+/// nothing left for an equals key to do. That removes a key, removes a state
+/// where the display and the saved value disagree, and removes the commonest
+/// calculator mistake — pressing save before pressing equals.
+///
+/// ## Why the keys are circles
 ///
 /// A 3×4 grid of full-width rounded rectangles is a wall: twelve high-contrast
 /// slabs filling the bottom half of a screen whose entire point is one
@@ -39,19 +86,31 @@ import '../../utils/extensions/context_extensions.dart';
 class AmountKeypad extends StatelessWidget {
   const AmountKeypad({
     super.key,
-    required this.text,
     required this.currency,
-    required this.onChanged,
+    required this.onKey,
+    this.onOperator,
+    this.activeOp,
     this.glowTint,
     this.maxKeySize = 76,
-    this.gap = 14,
+    this.gap = 12,
   });
 
-  /// The raw digit string. May be empty, may end in a separator.
-  final String text;
-
   final Currency currency;
-  final ValueChanged<String> onChanged;
+
+  /// Emits the pressed key — a digit, `.` or `⌫`.
+  ///
+  /// ⚠️ The pad no longer owns the string. With a caret in play every edit is
+  /// an insertion *somewhere*, so the rules about decimals, leading zeros and
+  /// length became rules about the text rather than about the key — they live
+  /// with the text, in `applyAmountKey`.
+  final ValueChanged<String> onKey;
+
+  /// Null hides the operator column entirely, leaving a plain 3-wide pad.
+  final ValueChanged<CalcOp>? onOperator;
+
+  /// The operation waiting on a second operand, lit so it is obvious one is
+  /// pending.
+  final CalcOp? activeOp;
 
   /// The colour a key blooms when pressed. Defaults to plain ink.
   ///
@@ -88,48 +147,31 @@ class AmountKeypad extends StatelessWidget {
 
   void _press(String key) {
     HapticFeedback.selectionClick();
-    switch (key) {
-      case '⌫':
-        onChanged(text.isEmpty ? '' : text.substring(0, text.length - 1));
-      case '.':
-        // One separator, and never as the first character — `.5` is a valid
-        // double but reads as a typo, and a second point would make the whole
-        // string unparseable.
-        if (currency.decimalDigits == 0) return;
-        if (text.contains('.')) return;
-        onChanged(text.isEmpty ? '0.' : '$text.');
-      default:
-        // Cap the fraction at the currency's own precision, so a user cannot
-        // enter 19.9999 and have it silently round to 20.00 on save.
-        final dot = text.indexOf('.');
-        if (dot >= 0 && text.length - dot - 1 >= currency.decimalDigits) {
-          return;
-        }
-        // No runaway leading zeros: `0` then `5` is `5`, not `05`.
-        if (text == '0') {
-          onChanged(key);
-          return;
-        }
-        if (text.replaceAll('.', '').length >= 12) return;
-        onChanged('$text$key');
-    }
+    onKey(key);
   }
+
+  /// Interleaves nulls as gap markers, so the row builder stays a flat loop.
+  static List<String?> _spaced(List<String> keys, double gap) => [
+    for (var i = 0; i < keys.length; i++) ...[if (i > 0) null, keys[i]],
+  ];
 
   @override
   Widget build(BuildContext context) {
-    const rows = [
-      ['1', '2', '3'],
-      ['4', '5', '6'],
-      ['7', '8', '9'],
-      ['.', '0', '⌫'],
+    final calculator = onOperator != null;
+    final rows = [
+      ['1', '2', '3', if (calculator) CalcOp.divide.glyph],
+      ['4', '5', '6', if (calculator) CalcOp.multiply.glyph],
+      ['7', '8', '9', if (calculator) CalcOp.subtract.glyph],
+      ['.', '0', '⌫', if (calculator) CalcOp.add.glyph],
     ];
+    final columns = calculator ? 4 : 3;
 
     return LayoutBuilder(
       builder: (context, constraints) {
         // Sized by whichever runs out first — width or the height the parent
         // is willing to give. A pad that overflows its slot is worse than a
         // slightly smaller one, and on a short phone height is what binds.
-        final byWidth = (constraints.maxWidth - gap * 2) / 3;
+        final byWidth = (constraints.maxWidth - gap * (columns - 1)) / columns;
         final byHeight = constraints.hasBoundedHeight
             ? (constraints.maxHeight - gap * 3) / 4
             : double.infinity;
@@ -144,20 +186,41 @@ class AmountKeypad extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  for (var i = 0; i < rows[r].length; i++) ...[
-                    if (i > 0) SizedBox(width: gap),
-                    _Key(
-                      label: rows[r][i],
-                      size: size,
-                      glowTint: glowTint,
-                      // Lit from above, like everything else on the page. The
-                      // falloff is tiny — 5% a row — but it is the difference
-                      // between a grid of keys and a grid of keys *in a room*.
-                      rest: 0.075 - r * 0.009,
-                      onTap: () => _press(rows[r][i]),
-                      disabled:
-                          rows[r][i] == '.' && currency.decimalDigits == 0,
-                    ),
+                  for (final label in _spaced(rows[r], gap)) ...[
+                    if (label == null)
+                      SizedBox(width: gap)
+                    else
+                      Builder(
+                        builder: (context) {
+                          final op = CalcOp.fromGlyph(label);
+                          return _Key(
+                            label: label,
+                            size: size,
+                            glowTint: glowTint,
+                            // Lit from above, like everything else on the
+                            // page. The falloff is tiny — but it is the
+                            // difference between a grid of keys and a grid of
+                            // keys *in a room*.
+                            rest: 0.09 - r * 0.009,
+                            op: op,
+                            // ⚠️ `op != null &&` is load-bearing. Comparing
+                            // the two nullables alone makes every **digit**
+                            // active whenever no operation is pending, because
+                            // `null == null` — which lit the whole pad.
+                            active: op != null && op == activeOp,
+                            onTap: () {
+                              if (op != null) {
+                                HapticFeedback.selectionClick();
+                                onOperator!(op);
+                              } else {
+                                _press(label);
+                              }
+                            },
+                            disabled:
+                                label == '.' && currency.decimalDigits == 0,
+                          );
+                        },
+                      ),
                   ],
                 ],
               ),
@@ -181,6 +244,8 @@ class _Key extends StatefulWidget {
     required this.onTap,
     required this.size,
     required this.rest,
+    this.op,
+    this.active = false,
     this.glowTint,
     this.disabled = false,
   });
@@ -191,6 +256,13 @@ class _Key extends StatefulWidget {
 
   /// Resting fill alpha. Varies by row so the pad catches the page's light.
   final double rest;
+
+  /// Set when this key is an operator — it wears the accent rather than plain
+  /// ink, so the column reads as a different kind of control at a glance.
+  final CalcOp? op;
+
+  /// This operator is the one waiting on a second operand.
+  final bool active;
 
   final Color? glowTint;
   final bool disabled;
@@ -212,6 +284,7 @@ class _KeyState extends State<_Key> {
     final c = context.budgyColors;
     final ink = c.heroInk;
     final isBackspace = widget.label == '⌫';
+    final isOp = widget.op != null;
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
@@ -232,13 +305,16 @@ class _KeyState extends State<_Key> {
           alignment: Alignment.center,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: null,
+            // ⚠️ The active operator is a flat fill, and it has to be set
+            // *here* — the gradient below is skipped for it, so leaving this
+            // null rendered the pending operator as nothing at all.
+            color: widget.active ? c.accent : null,
             // At rest, a shallow vertical ramp rather than a flat fill: a disc
             // lit from above is a dome, a disc of one value is a hole. The
             // page's light comes from the top of the screen, so the keys
             // answer it — which is also why the resting alpha steps down a
             // little with each row.
-            gradient: widget.disabled
+            gradient: widget.disabled || widget.active
                 ? null
                 : _down
                 ? RadialGradient(
@@ -274,9 +350,13 @@ class _KeyState extends State<_Key> {
               : Text(
                   widget.label,
                   style: context.textTheme.headlineLarge?.copyWith(
-                    fontSize: widget.size * 0.37,
+                    fontSize: widget.size * (isOp ? 0.42 : 0.37),
                     color: widget.disabled
                         ? ink.withValues(alpha: 0.2)
+                        : widget.active
+                        ? Colors.white
+                        : isOp
+                        ? c.accent
                         : ink.withValues(alpha: 0.92),
                   ),
                 ),

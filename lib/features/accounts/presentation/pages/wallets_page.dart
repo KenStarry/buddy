@@ -5,9 +5,10 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../../core/domain/currency.dart';
+import '../../../../core/presentation/components/budgy_switch.dart';
+import '../../../../core/presentation/components/amount_field.dart';
 import '../../../../core/presentation/components/amount_keypad.dart';
 import '../../../../core/presentation/components/budgy_button.dart';
-import '../../../../core/presentation/components/budgy_card.dart';
 import '../../../../core/presentation/components/budgy_chip.dart';
 import '../../../../core/presentation/components/budgy_sheet.dart';
 import '../../../../core/presentation/components/look_picker.dart';
@@ -249,6 +250,9 @@ class _WalletSheetState extends ConsumerState<WalletSheet> {
     widget.existing?.currency ?? CurrencyRegistry.base,
   );
 
+  /// Insertion point in [_openingText], in raw characters.
+  late int _openingCaret = _openingText.length;
+
   @override
   void dispose() {
     _nameController.dispose();
@@ -322,6 +326,7 @@ class _WalletSheetState extends ConsumerState<WalletSheet> {
                     final minor = AmountKeypad.toMinor(_openingText, _currency);
                     _currency = currency;
                     _openingText = AmountKeypad.fromMinor(minor, currency);
+                    _openingCaret = _openingText.length;
                   }),
                 ),
             ],
@@ -338,17 +343,27 @@ class _WalletSheetState extends ConsumerState<WalletSheet> {
             style: context.textTheme.bodySmall?.copyWith(color: c.text300),
           ),
           const SizedBox(height: 12),
-          MoneyText(
-            AmountKeypad.toMinor(_openingText, _currency),
+          AmountField(
+            text: _openingText,
+            caret: _openingCaret,
             currency: _currency,
-            size: MoneySize.display,
-            showDecimals: _openingText.contains('.'),
+            style: MoneyText.baseStyle(context, MoneySize.display),
+            ink: c.text100,
+            onCaret: (index) => setState(() => _openingCaret = index),
           ),
           const SizedBox(height: 16),
           AmountKeypad(
-            text: _openingText,
             currency: _currency,
-            onChanged: (value) => setState(() => _openingText = value),
+            onKey: (key) => setState(() {
+              final next = applyAmountKey(
+                text: _openingText,
+                caret: _openingCaret,
+                key: key,
+                currency: _currency,
+              );
+              _openingText = next.text;
+              _openingCaret = next.caret;
+            }),
           ),
 
           const SizedBox(height: 20),
@@ -360,42 +375,17 @@ class _WalletSheetState extends ConsumerState<WalletSheet> {
           ),
 
           const SizedBox(height: 20),
-          BudgyCard(
-            tone: BudgyCardTone.band,
-            elevated: false,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Column(
-              children: [
-                SwitchListTile.adaptive(
-                  contentPadding: EdgeInsets.zero,
-                  value: _isPrimary,
-                  activeTrackColor: c.accent,
-                  title: Text(
-                    'Use this by default',
-                    style: context.textTheme.titleSmall,
-                  ),
-                  onChanged: (value) => setState(() => _isPrimary = value),
-                ),
-                Divider(height: 1, color: c.divider),
-                SwitchListTile.adaptive(
-                  contentPadding: EdgeInsets.zero,
-                  value: _excludeFromNetWorth,
-                  activeTrackColor: c.accent,
-                  title: Text(
-                    'Leave out of net worth',
-                    style: context.textTheme.titleSmall,
-                  ),
-                  subtitle: Text(
-                    'For a credit card or a loan — money that isn’t yours.',
-                    style: context.textTheme.bodySmall?.copyWith(
-                      color: c.text300,
-                    ),
-                  ),
-                  onChanged: (value) =>
-                      setState(() => _excludeFromNetWorth = value),
-                ),
-              ],
-            ),
+          BudgyToggleTile(
+            title: 'Use this by default',
+            value: _isPrimary,
+            onChanged: (value) => setState(() => _isPrimary = value),
+          ),
+          const SizedBox(height: 8),
+          BudgyToggleTile(
+            title: 'Leave out of net worth',
+            subtitle: 'For a credit card or a loan — money that isn’t yours.',
+            value: _excludeFromNetWorth,
+            onChanged: (value) => setState(() => _excludeFromNetWorth = value),
           ),
 
           const SizedBox(height: 22),

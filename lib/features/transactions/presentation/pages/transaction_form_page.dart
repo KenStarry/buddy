@@ -8,12 +8,12 @@ import 'package:uuid/uuid.dart';
 import '../../../../core/domain/currency.dart';
 import '../../../../core/presentation/components/budgy_date_picker.dart';
 import '../../../../core/presentation/components/amount_keypad.dart';
-import '../../../../core/presentation/components/budgy_button.dart';
 import '../../../../core/presentation/budgy_icons.dart';
-import '../../../../core/presentation/components/budgy_card.dart';
 import '../../../../core/presentation/components/glass_card.dart';
-import '../../../../core/presentation/components/budgy_chip.dart';
 import '../../../../core/presentation/components/budgy_sheet.dart';
+import '../../../../core/presentation/components/amount_field.dart';
+import '../../../../core/presentation/components/budgy_switch.dart';
+import '../../../../core/presentation/components/option_row.dart';
 import '../../../../core/presentation/components/money_text.dart';
 import '../../../../core/presentation/components/pill_popover.dart';
 import '../../../../core/presentation/surfaces/glow.dart';
@@ -103,6 +103,15 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
   late TransactionType _type;
   late TransactionNature _nature;
   String _amountText = '';
+
+  /// The left-hand side of a pending calculation, and the operation waiting on
+  /// a second operand. Both null for the ordinary case of simply typing a
+  /// number.
+  double? _accumulator;
+  CalcOp? _pendingOp;
+
+  /// Insertion point in [_amountText], in raw characters.
+  int _caret = 0;
   String? _categoryId;
   String? _subcategoryId;
   String? _accountId;
@@ -160,6 +169,7 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
         existing.amountMinor,
         existing.currency,
       );
+      _caret = _amountText.length;
       _categoryId = existing.categoryId;
       _subcategoryId = existing.subcategoryId;
       _accountId = existing.accountId;
@@ -183,6 +193,7 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
         widget.prefill!.amountMinor!,
         primaryAccount?.currency ?? CurrencyRegistry.base,
       );
+      _caret = _amountText.length;
     }
     _categoryId ??= categories.firstOrNull?.id;
     _hydrated = primaryAccount != null;
@@ -191,10 +202,77 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
   AccountModel? get _account =>
       ref.read(accountsControllerProvider).byId(_accountId);
 
+  /// What would be saved right now, with any pending operation already
+  /// applied.
+  ///
+  /// ⚠️ This is also what the figure renders, which is the whole reason the pad
+  /// needs no `=` key: the display can never disagree with the value, and
+  /// pressing save before pressing equals stops being a mistake you can make.
+  double get _amountValue {
+    final operand = double.tryParse(_amountText.replaceAll(',', '.'));
+    final left = _accumulator;
+    final op = _pendingOp;
+    if (left == null || op == null) return operand ?? 0;
+    if (operand == null) return left;
+    return op.apply(left, operand);
+  }
+
   int get _amountMinor {
     final account = _account;
     if (account == null) return 0;
-    return AmountKeypad.toMinor(_amountText, account.currency);
+    final value = _amountValue;
+    // A negative result is not an amount — the sign is carried by
+    // `TransactionType`, so "100 − 250" is a sum the user is mid-way through,
+    // not a −150 expense. Clamped to zero, which also leaves `_canSave` false.
+    return value <= 0 ? 0 : account.currency.toMinor(value);
+  }
+
+  /// Applies one keypad press at the caret.
+  void _applyKey(String key, Currency currency) {
+    // Backspacing past an empty operand unwinds the calculation a step rather
+    // than doing nothing — the only way back out of a mis-tapped operator.
+    if (key == '⌫' && _amountText.isEmpty && _pendingOp != null) {
+      setState(() {
+        final left = _accumulator;
+        _pendingOp = null;
+        _accumulator = null;
+        _amountText = left == null
+            ? ''
+            : AmountKeypad.fromMinor(currency.toMinor(left), currency);
+        _caret = _amountText.length;
+      });
+      return;
+    }
+
+    final next = applyAmountKey(
+      text: _amountText,
+      caret: _caret,
+      key: key,
+      currency: currency,
+    );
+    setState(() {
+      _amountText = next.text;
+      _caret = next.caret;
+    });
+  }
+
+  /// Folds the pending operation into the accumulator and starts a fresh
+  /// operand.
+  void _applyOperator(CalcOp op) {
+    setState(() {
+      final operand = double.tryParse(_amountText.replaceAll(',', '.'));
+      if (operand != null) {
+        _accumulator = _accumulator == null || _pendingOp == null
+            ? operand
+            : _pendingOp!.apply(_accumulator!, operand);
+      }
+      // Pressing a second operator with nothing typed between them swaps the
+      // operation rather than stacking one, which is what every calculator
+      // does and what a mis-tap means.
+      _pendingOp = _accumulator == null ? null : op;
+      _amountText = '';
+      _caret = 0;
+    });
   }
 
   bool get _canSave {
@@ -327,7 +405,6 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
     final parent = categoriesState.parentOf(_categoryId);
     final sub = categoriesState.byId(_subcategoryId);
     final tint = _tint(context);
-    final empty = _amountMinor == 0;
 
     return Scaffold(
       backgroundColor: c.surface100,
@@ -432,44 +509,61 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        // What is pending, above the running total it feeds.
+                        // Without it the figure silently changes meaning the
+                        // moment an operator is pressed — "1,250" stops being
+                        // what you typed and becomes a left-hand side, with
+                        // nothing on screen saying so.
+                        AnimatedSize(
+                          duration: const Duration(milliseconds: 180),
+                          curve: Curves.easeOut,
+                          alignment: Alignment.bottomLeft,
+                          child: _pendingOp == null
+                              ? const SizedBox(width: double.infinity)
+                              : Padding(
+                                  padding: const EdgeInsets.only(bottom: 6),
+                                  child: Row(
+                                    children: [
+                                      MoneyText(
+                                        currency.toMinor(_accumulator ?? 0),
+                                        currency: currency,
+                                        size: MoneySize.small,
+                                        showSymbol: false,
+                                        color: c.heroInk.withValues(alpha: 0.5),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        _pendingOp!.glyph,
+                                        style: context.textTheme.titleMedium
+                                            ?.copyWith(color: c.accent),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                        ),
                         _AmountPulse(
+                          // Keyed to the text only — moving the caret must not
+                          // kick the figure, or every tap to reposition reads
+                          // as an edit that did not happen.
                           value: _amountText,
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.baseline,
-                            textBaseline: TextBaseline.alphabetic,
-                            children: [
-                              if (!_type.isTransfer)
-                                Padding(
-                                  padding: const EdgeInsets.only(right: 6),
-                                  child: Text(
-                                    _type.isIncome ? '+' : '−',
-                                    style: context.textTheme.displayLarge
-                                        ?.copyWith(
-                                          fontSize: 56,
-                                          height: 1,
-                                          color: c.heroInk.withValues(
-                                            alpha: empty ? 0.18 : 0.4,
-                                          ),
-                                        ),
-                                  ),
-                                ),
-                              Flexible(
-                                child: FittedBox(
-                                  fit: BoxFit.scaleDown,
-                                  alignment: Alignment.centerLeft,
-                                  child: MoneyText(
-                                    _amountMinor,
-                                    currency: currency,
-                                    size: MoneySize.entry,
-                                    symbolTrailing: true,
-                                    showDecimals: _amountText.contains('.'),
-                                    color: empty
-                                        ? c.heroInk.withValues(alpha: 0.22)
-                                        : c.heroInk,
-                                  ),
-                                ),
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: AmountField(
+                              text: _amountText,
+                              caret: _caret,
+                              currency: currency,
+                              style: MoneyText.baseStyle(
+                                context,
+                                MoneySize.entry,
                               ),
-                            ],
+                              ink: c.heroInk,
+                              sign: _type.isTransfer
+                                  ? null
+                                  : (_type.isIncome ? '+' : '−'),
+                              onCaret: (index) =>
+                                  setState(() => _caret = index),
+                            ),
                           ),
                         ),
                         const SizedBox(height: 10),
@@ -546,9 +640,11 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
                       vertical: 6,
                     ),
                     child: AmountKeypad(
-                      text: _amountText,
                       currency: currency,
-                      onChanged: (value) => setState(() => _amountText = value),
+                      glowTint: tint,
+                      activeOp: _pendingOp,
+                      onOperator: _applyOperator,
+                      onKey: (key) => _applyKey(key, currency),
                     ),
                   ),
                 ),
@@ -861,7 +957,7 @@ class _CategoryTerm extends StatelessWidget {
         title: 'Category',
         children: [
           for (final category in categories) ...[
-            _Option(
+            OptionRow(
               label: category.name,
               emoji: category.emoji,
               icon: BudgyIcons.resolve(category.iconKey),
@@ -881,7 +977,7 @@ class _CategoryTerm extends StatelessWidget {
                 child: Column(
                   children: [
                     for (final subcategory in category.subcategories)
-                      _Option(
+                      OptionRow(
                         label: subcategory.name,
                         tint: c.categoryAt(category.colorIndex),
                         selected: subcategory.id == sub?.id,
@@ -935,7 +1031,7 @@ class _WalletTerm extends StatelessWidget {
         title: title,
         children: [
           for (final option in options)
-            _Option(
+            OptionRow(
               label: option.name,
               sublabel: option.currency.name,
               icon: BudgyIcons.resolve(option.iconKey),
@@ -988,7 +1084,7 @@ class _DateTerm extends StatelessWidget {
         title: 'When',
         children: [
           for (final day in quick)
-            _Option(
+            OptionRow(
               label: day.relativeDayLabel,
               selected: day.isSameDay(date),
               onTap: () {
@@ -996,7 +1092,7 @@ class _DateTerm extends StatelessWidget {
                 close();
               },
             ),
-          _Option(
+          OptionRow(
             label: 'Pick a date…',
             icon: LucideIcons.calendarDays,
             tint: c.accent,
@@ -1036,7 +1132,7 @@ class _NatureTerm extends StatelessWidget {
         title: 'Kind of entry',
         children: [
           for (final option in TransactionNature.values)
-            _Option(
+            OptionRow(
               label: option.label,
               sublabel: _TransactionFormPageState._natureBlurb(option),
               icon: BudgyIcons.resolve(option.iconKey),
@@ -1048,94 +1144,6 @@ class _NatureTerm extends StatelessWidget {
               },
             ),
         ],
-      ),
-    );
-  }
-}
-
-/// A row inside a panel.
-class _Option extends StatelessWidget {
-  const _Option({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-    this.sublabel,
-    this.icon,
-    this.emoji,
-    this.tint,
-  });
-
-  final String label;
-  final String? sublabel;
-  final bool selected;
-  final VoidCallback onTap;
-  final IconData? icon;
-  final String? emoji;
-  final Color? tint;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.budgyColors;
-    final ink = c.heroInk;
-    final hue = tint ?? c.accent;
-
-    return PressScale(
-      onTap: onTap,
-      haptic: HapticLevel.selection,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-        decoration: BoxDecoration(
-          color: selected ? ink.withValues(alpha: 0.10) : Colors.transparent,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Row(
-          children: [
-            if (icon != null || emoji != null) ...[
-              Container(
-                width: 32,
-                height: 32,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: hue.withValues(alpha: selected ? 0.9 : 0.18),
-                  shape: BoxShape.circle,
-                ),
-                child: emoji != null
-                    ? Text(emoji!, style: const TextStyle(fontSize: 15))
-                    : Icon(
-                        icon,
-                        size: 15,
-                        color: selected ? Colors.white : hue,
-                      ),
-              ),
-              const SizedBox(width: 11),
-            ],
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: context.textTheme.titleSmall?.copyWith(color: ink),
-                  ),
-                  if (sublabel != null)
-                    Text(
-                      sublabel!,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: context.textTheme.bodySmall?.copyWith(
-                        color: ink.withValues(alpha: 0.5),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            if (selected) Icon(LucideIcons.check, size: 17, color: c.accent),
-          ],
-        ),
       ),
     );
   }
@@ -1372,6 +1380,9 @@ class _LabelField extends StatelessWidget {
 /// The things most entries never need: a note, a goal, an added budget, a
 /// repeat rule, and the settled switch. Behind one tap so the fast path stays
 /// fast.
+/// The things most entries never need: a note, a goal, an added budget, a
+/// repeat rule, and the settled switch. Behind one tap so the fast path stays
+/// fast.
 class _ExtrasSheet extends ConsumerWidget {
   const _ExtrasSheet({
     required this.noteController,
@@ -1400,6 +1411,7 @@ class _ExtrasSheet extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.budgyColors;
+    final ink = c.heroInk;
     final goals = ref.watch(goalsControllerProvider).live;
     final addable = ref.watch(budgetsControllerProvider).addable;
 
@@ -1410,65 +1422,63 @@ class _ExtrasSheet extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            TextField(
-              controller: noteController,
-              maxLines: 3,
-              minLines: 2,
-              textCapitalization: TextCapitalization.sentences,
-              style: context.textTheme.bodyMedium,
-              decoration: const InputDecoration(
-                hintText: 'Add a note — you’ll thank yourself later',
+            // The note, on its own quiet panel rather than in a filled input.
+            // The theme's `InputDecoration` paints a `surface300` slab, which
+            // on this sheet is a lighter rectangle than the sheet itself —
+            // a hole, not a field.
+            Container(
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+              decoration: BoxDecoration(
+                color: ink.withValues(alpha: 0.055),
+                borderRadius: BorderRadius.circular(18),
               ),
-              onChanged: (_) => setSheetState(() {}),
+              child: TextField(
+                controller: noteController,
+                maxLines: 4,
+                minLines: 2,
+                textCapitalization: TextCapitalization.sentences,
+                cursorColor: c.accent,
+                style: context.textTheme.bodyMedium?.copyWith(color: ink),
+                decoration: InputDecoration(
+                  isDense: true,
+                  filled: false,
+                  contentPadding: EdgeInsets.zero,
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  hintText: 'Add a note — you’ll thank yourself later',
+                  hintStyle: context.textTheme.bodyMedium?.copyWith(
+                    color: ink.withValues(alpha: 0.38),
+                  ),
+                ),
+                onChanged: (_) => setSheetState(() {}),
+              ),
             ),
 
             if (nature.needsSettlement) ...[
-              const SizedBox(height: 20),
-              BudgyCard(
-                tone: BudgyCardTone.band,
-                elevated: false,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 6,
-                ),
-                child: SwitchListTile.adaptive(
-                  contentPadding: EdgeInsets.zero,
-                  value: isSettled,
-                  activeTrackColor: c.accent,
-                  title: Text(
-                    'Already settled',
-                    style: context.textTheme.titleSmall,
-                  ),
-                  subtitle: Text(
-                    isSettled
-                        ? 'Counts toward balances and budgets'
-                        : 'Sits in Upcoming until you settle it',
-                    style: context.textTheme.bodySmall?.copyWith(
-                      color: c.text300,
-                    ),
-                  ),
-                  onChanged: (value) {
-                    onSettledChanged(value);
-                    setSheetState(() {});
-                  },
-                ),
+              const SizedBox(height: 14),
+              BudgyToggleTile(
+                title: 'Already settled',
+                subtitle: isSettled
+                    ? 'Counts toward balances and budgets'
+                    : 'Sits in Upcoming until you settle it',
+                value: isSettled,
+                onChanged: (value) {
+                  onSettledChanged(value);
+                  setSheetState(() {});
+                },
               ),
             ],
 
             if (nature.recurs) ...[
-              const SizedBox(height: 20),
-              Text(
-                'REPEATS',
-                style: context.textTheme.labelSmall?.copyWith(color: c.text300),
-              ),
-              const SizedBox(height: 10),
+              const _SheetLabel('Repeats'),
               Wrap(
                 spacing: 8,
+                runSpacing: 8,
                 children: [
                   for (final cadence in RecurrenceCadence.values)
-                    BudgyChip(
+                    GlassPill(
                       label: cadence.label,
-                      dense: true,
                       selected: recurrence?.cadence == cadence,
                       onTap: () {
                         onRecurrenceChanged(Recurrence(cadence: cadence));
@@ -1480,75 +1490,101 @@ class _ExtrasSheet extends ConsumerWidget {
             ],
 
             if (goals.isNotEmpty) ...[
-              const SizedBox(height: 20),
-              Text(
-                'COUNTS TOWARD A GOAL',
-                style: context.textTheme.labelSmall?.copyWith(color: c.text300),
+              const _SheetLabel('Counts toward a goal'),
+              // ⚠️ An explicit "no goal" row. Without it the only way to undo a
+              // goal is to tap the chosen one again — a toggle hidden inside
+              // what looks like a single-choice list.
+              OptionRow(
+                label: 'Not toward a goal',
+                selected: goalId == null,
+                onTap: () {
+                  onGoalChanged(null);
+                  setSheetState(() {});
+                },
               ),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final goal in goals)
-                    BudgyChip(
-                      label: goal.name,
-                      emoji: goal.emoji,
-                      dense: true,
-                      tint: c.categoryAt(goal.colorIndex),
-                      selected: goalId == goal.id,
-                      onTap: () {
-                        onGoalChanged(goalId == goal.id ? null : goal.id);
-                        setSheetState(() {});
-                      },
-                    ),
-                ],
-              ),
+              for (final goal in goals)
+                OptionRow(
+                  label: goal.name,
+                  emoji: goal.emoji,
+                  icon: BudgyIcons.resolve(goal.iconKey),
+                  tint: c.categoryAt(goal.colorIndex),
+                  selected: goalId == goal.id,
+                  onTap: () {
+                    onGoalChanged(goal.id);
+                    setSheetState(() {});
+                  },
+                ),
             ],
 
             if (addable.isNotEmpty) ...[
-              const SizedBox(height: 20),
-              Text(
-                'ADD TO A BUDGET',
-                style: context.textTheme.labelSmall?.copyWith(color: c.text300),
+              const _SheetLabel(
+                'Add to a budget',
+                blurb: 'These budgets only count what you hand them.',
               ),
-              const SizedBox(height: 6),
-              Text(
-                'These budgets only count what you hand them.',
-                style: context.textTheme.bodySmall?.copyWith(color: c.text300),
-              ),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final budget in addable)
-                    BudgyChip(
-                      label: budget.name,
-                      dense: true,
-                      tint: c.categoryAt(budget.colorIndex),
-                      selected: budgetIds.contains(budget.id),
-                      onTap: () {
-                        final next = budgetIds.toSet();
-                        next.contains(budget.id)
-                            ? next.remove(budget.id)
-                            : next.add(budget.id);
-                        onBudgetsChanged(next.toList());
-                        setSheetState(() {});
-                      },
-                    ),
-                ],
-              ),
+              for (final budget in addable)
+                OptionRow(
+                  label: budget.name,
+                  icon: BudgyIcons.resolve(budget.iconKey),
+                  tint: c.categoryAt(budget.colorIndex),
+                  selected: budgetIds.contains(budget.id),
+                  onTap: () {
+                    final next = budgetIds.toSet();
+                    next.contains(budget.id)
+                        ? next.remove(budget.id)
+                        : next.add(budget.id);
+                    onBudgetsChanged(next.toList());
+                    setSheetState(() {});
+                  },
+                ),
             ],
 
             const SizedBox(height: 22),
-            BudgyFilledButton(
-              label: 'Done',
-              width: double.infinity,
-              onTap: () async => Navigator.of(context).pop(),
+            Center(
+              child: _ConfirmAction(
+                label: 'Done',
+                enabled: true,
+                glow: c.accent,
+                onTap: () => Navigator.of(context).pop(),
+              ),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// A section heading inside a sheet.
+class _SheetLabel extends StatelessWidget {
+  const _SheetLabel(this.text, {this.blurb});
+
+  final String text;
+  final String? blurb;
+
+  @override
+  Widget build(BuildContext context) {
+    final ink = context.budgyColors.heroInk;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(2, 22, 2, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            text.toUpperCase(),
+            style: context.textTheme.labelSmall?.copyWith(
+              color: ink.withValues(alpha: 0.45),
+            ),
+          ),
+          if (blurb != null) ...[
+            const SizedBox(height: 5),
+            Text(
+              blurb!,
+              style: context.textTheme.bodySmall?.copyWith(
+                color: ink.withValues(alpha: 0.45),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

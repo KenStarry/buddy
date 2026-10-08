@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../../core/presentation/components/budgy_switch.dart';
+import '../../../../core/presentation/components/amount_field.dart';
 import '../../../../core/presentation/components/budgy_date_picker.dart';
 import '../../../../core/presentation/components/amount_keypad.dart';
 import '../../../../core/presentation/components/budgy_card.dart';
@@ -31,6 +33,9 @@ class _GoalFormPageState extends ConsumerState<GoalFormPage> {
   final _noteController = TextEditingController();
 
   String _amountText = '';
+
+  /// Insertion point in [_amountText], in raw characters.
+  int _amountCaret = 0;
   GoalKind _kind = GoalKind.saving;
   DateTime? _targetDate;
   String _iconKey = 'target';
@@ -126,18 +131,27 @@ class _GoalFormPageState extends ConsumerState<GoalFormPage> {
           content: Column(
             children: [
               const SizedBox(height: 10),
-              MoneyText(
-                _targetMinor,
+              AmountField(
+                text: _amountText,
+                caret: _amountCaret,
                 currency: base,
-                size: MoneySize.hero,
-                showDecimals: _amountText.contains('.'),
-                color: _targetMinor == 0 ? c.text300 : c.text100,
+                style: MoneyText.baseStyle(context, MoneySize.hero),
+                ink: c.text100,
+                onCaret: (index) => setState(() => _amountCaret = index),
               ),
               const SizedBox(height: 26),
               AmountKeypad(
-                text: _amountText,
                 currency: base,
-                onChanged: (value) => setState(() => _amountText = value),
+                onKey: (key) => setState(() {
+                  final next = applyAmountKey(
+                    text: _amountText,
+                    caret: _amountCaret,
+                    key: key,
+                    currency: base,
+                  );
+                  _amountText = next.text;
+                  _amountCaret = next.caret;
+                }),
               ),
             ],
           ),
@@ -286,20 +300,10 @@ class _GoalFormPageState extends ConsumerState<GoalFormPage> {
                 onColor: (index) => setState(() => _colorIndex = index),
               ),
               const SizedBox(height: 22),
-              BudgyCard(
-                tone: BudgyCardTone.band,
-                elevated: false,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: SwitchListTile.adaptive(
-                  contentPadding: EdgeInsets.zero,
-                  value: _isPinned,
-                  activeTrackColor: c.accent,
-                  title: Text(
-                    'Show it on my home screen',
-                    style: context.textTheme.titleSmall,
-                  ),
-                  onChanged: (value) => setState(() => _isPinned = value),
-                ),
+              BudgyToggleTile(
+                title: 'Show it on my home screen',
+                value: _isPinned,
+                onChanged: (value) => setState(() => _isPinned = value),
               ),
             ],
           ),
