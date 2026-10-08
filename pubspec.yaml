@@ -1,0 +1,92 @@
+name: budgy
+description: "Your Budget Buddy"
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+
+  # ── State ────────────────────────────────────────────────────────────────
+  flutter_riverpod: ^3.1.0
+  riverpod_annotation: ^4.0.0
+
+  # ── Routing ──────────────────────────────────────────────────────────────
+  go_router: ^17.0.1
+
+  # ── Network (stubbed until Budgy grows a backend; see BudgyConfig) ───────
+  dio: ^5.9.0
+
+  # ── Storage ──────────────────────────────────────────────────────────────
+  hive_ce: ^2.19.3
+  hive_ce_flutter: ^2.3.4
+  shared_preferences: ^2.5.4
+  flutter_secure_storage: ^10.3.1
+
+  # ── DI & functional ──────────────────────────────────────────────────────
+  get_it: ^9.2.0
+  dartz: ^0.10.1
+  equatable: ^2.0.8
+
+  # ── UI / animation ───────────────────────────────────────────────────────
+  flutter_svg: ^2.2.3
+  lucide_icons_flutter: ^3.0.0
+  cached_network_image: ^3.4.1
+  flutter_animate: ^4.5.2
+  lottie: ^3.3.1
+
+  # ── Data viz (Reports, budget rings, heatmap) ────────────────────────────
+  fl_chart: ^1.1.1
+  percent_indicator: ^4.2.5
+
+  # ── Flair ────────────────────────────────────────────────────────────────
+  confetti: ^0.8.0
+  animated_digit: ^3.2.4
+  smooth_page_indicator: ^2.0.1
+  flutter_staggered_grid_view: ^0.7.0
+
+  # ── Utils ────────────────────────────────────────────────────────────────
+  intl: ^0.20.2
+  logger: ^2.6.2
+  uuid: ^4.5.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0
+  build_runner: ^2.10.4
+  riverpod_generator: ^4.0.0+1
+  custom_lint: ^0.8.1
+  riverpod_lint: ^3.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/
+    - assets/images/svgs/
+    - assets/images/3d/
+    - assets/lottie/
+
+  # ⚠️ Both families are **variable** fonts (one file, a `wght` axis from 100
+  # to 800). They are declared without per-weight assets on purpose; the type
+  # ramp in `AppTheme` sets `fontVariations: [FontVariation.weight(w)]`
+  # alongside `fontWeight` so the axis is driven explicitly rather than
+  # relying on the platform to synthesise a weight it cannot see.
+  fonts:
+    # Display + numerals. Geometric, wide apertures, and a `1` with a flag —
+    # which is what makes a five-digit balance read as money and not as a
+    # serial number.
+    - family: Sora
+      fonts:
+        - asset: assets/fonts/Sora.ttf
+    # Body + UI. Tall x-height, tight spacing, legible at 11pt.
+    - family: Manrope
+      fonts:
+        - asset: assets/fonts/Manrope.ttf
