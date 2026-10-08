@@ -123,6 +123,22 @@ in a `Stack` behind it. Behind, it is clipped by nothing: it bleeds past the
 rounded corners and, wherever the surface turns out narrower than its parent,
 straight across the page as a raw rectangle of light.
 
+⚠️ A glow that ends anywhere visible needs `AmbientGlow.fadeBottom`. A bloom
+is a radial gradient still well above zero alpha when it reaches the edge of
+its box, so the box **clips** it — and a clipped gradient is a hard horizontal
+line across the page. A taller box only moves the line; fading the layer out
+before its own edge is what makes the light die into the page instead of
+stopping against it. The home header fills its own bounds and dissolves over
+the bottom ~40%, with page padding below the action row for the fade to land
+in.
+
+**Chrome on a lit surface is glass, never `surface300`.** An opaque dark
+circle on the header reads as a hole punched through it — the one place where
+the glow visibly stops. The top bar's buttons are translucent white so the
+light carries through. The one exception is the brand mark, which stays a
+filled accent chip: a logo is the one place a flat block of brand colour is
+doing its job rather than competing with a figure.
+
 **One card material, one component.** `GlassCard` is the surface every
 nameable object wears — a wallet, a budget, a goal. Three near-identical
 implementations of it existed before it did, which is exactly how a design

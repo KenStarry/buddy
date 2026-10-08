@@ -77,30 +77,37 @@ class _HomeHeaderState extends ConsumerState<HomeHeader> {
 
     return Stack(
       children: [
-        // ⚠️ Full-bleed, and **behind** the stack rather than inside the
-        // panel. Everything above it is frosted glass, and glass on a flat
-        // near-black page refracts nothing — the blur is real, costs a
-        // saveLayer, and is invisible. This is the light the glass is made of.
-        Positioned(
-          top: -40,
-          left: -60,
-          right: -60,
-          height: 460,
-          child: AmbientGlow(
-            blooms: [
-              AmbientBloom(
-                color: c.accent,
-                center: const Alignment(0.62, -0.12),
-                radius: 0.80,
-                strength: 0.42,
-              ),
-              AmbientBloom(
-                color: c.accentPop,
-                center: const Alignment(-0.75, 0.30),
-                radius: 0.92,
-                strength: 0.26,
-              ),
-            ],
+        // ⚠️ `Positioned.fill` with a bottom fade, **not** a fixed-height
+        // box. Everything above this is frosted glass, and glass on a flat
+        // near-black page refracts nothing — this is the light the glass is
+        // made of. But a bloom is still well above zero alpha when it reaches
+        // the edge of its box, so a box that ends anywhere visible *clips* the
+        // gradient and draws a hard line across the page. Filling the header
+        // and dissolving over the bottom third means the light dies into the
+        // page instead of stopping against it.
+        Positioned.fill(
+          child: IgnorePointer(
+            child: AmbientGlow(
+              fadeBottom: 0.42,
+              blooms: [
+                AmbientBloom(
+                  color: c.accent,
+                  // Centred behind the **panel**, not the ghosts above it.
+                  // Pushed higher, the light lands on the slivers and the
+                  // panel — the one surface that has to read as a thick pane
+                  // of glass — goes grey.
+                  center: const Alignment(0.60, -0.14),
+                  radius: 0.78,
+                  strength: 0.48,
+                ),
+                AmbientBloom(
+                  color: c.accentPop,
+                  center: const Alignment(-0.78, 0.12),
+                  radius: 0.88,
+                  strength: 0.28,
+                ),
+              ],
+            ),
           ),
         ),
         Padding(
@@ -214,17 +221,20 @@ class _BrandRow extends ConsumerWidget {
 
     return Row(
       children: [
+        // The one solid accent on the screen. A logo is the one place a flat
+        // chip of brand colour is doing its job rather than competing with a
+        // figure, so it stays filled while everything else turns to glass.
         Container(
-          width: 30,
-          height: 30,
+          width: 32,
+          height: 32,
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: c.accent,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(11),
           ),
-          child: Icon(LucideIcons.wallet, size: 16, color: c.surface100),
+          child: Icon(LucideIcons.wallet, size: 17, color: c.surface100),
         ),
-        const SizedBox(width: 9),
+        const SizedBox(width: 10),
         Text(
           'Budgy',
           style: context.textTheme.headlineMedium?.copyWith(color: c.text100),
@@ -251,15 +261,19 @@ class _BrandRow extends ConsumerWidget {
             height: 40,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: c.accentSoft,
+              color: c.heroInk.withValues(alpha: 0.10),
               shape: BoxShape.circle,
             ),
             child: name == null || name.isEmpty
-                ? Icon(LucideIcons.user, size: 18, color: c.accent)
+                ? Icon(
+                    LucideIcons.user,
+                    size: 18,
+                    color: c.heroInk.withValues(alpha: 0.75),
+                  )
                 : Text(
                     name.characters.first.toUpperCase(),
                     style: context.textTheme.titleMedium?.copyWith(
-                      color: c.accent,
+                      color: c.heroInk,
                     ),
                   ),
           ),
@@ -269,6 +283,12 @@ class _BrandRow extends ConsumerWidget {
   }
 }
 
+/// A top-bar button.
+///
+/// ⚠️ Glass, not `surface300`. An opaque dark circle sitting on a lit header
+/// reads as a **hole punched through it** — the one place on the screen where
+/// the glow visibly stops. Translucent white lets the light behind carry
+/// through, so the button sits on the header rather than in it.
 class _Chrome extends StatelessWidget {
   const _Chrome({
     required this.icon,
@@ -285,6 +305,7 @@ class _Chrome extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.budgyColors;
+    final ink = c.heroInk;
     return PressScale(
       onTap: onTap,
       haptic: HapticLevel.selection,
@@ -296,10 +317,14 @@ class _Chrome extends StatelessWidget {
             height: 40,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: active ? c.accentSoft : c.surface300,
+              color: ink.withValues(alpha: active ? 0.20 : 0.10),
               shape: BoxShape.circle,
             ),
-            child: Icon(icon, size: 18, color: active ? c.accent : c.text200),
+            child: Icon(
+              icon,
+              size: 18,
+              color: active ? c.accent : ink.withValues(alpha: 0.75),
+            ),
           ),
           if (badge)
             Positioned(
@@ -344,7 +369,7 @@ class _Pocket extends StatelessWidget {
   /// How much of each ghost shows above the one in front of it. Enough to
   /// carry a name and a figure — below about 20 a strip stops reading as a
   /// card you could pull out and starts reading as a seam in the panel.
-  static const double peek = 26;
+  static const double peek = 28;
 
   /// At most two. A third ghost is a third of the panel's width in bands
   /// before you reach the number everything here exists to show.
@@ -371,8 +396,8 @@ class _Pocket extends StatelessWidget {
         for (var i = ghosts.length - 1; i >= 0; i--)
           Positioned(
             top: (ghosts.length - 1 - i) * peek,
-            left: (i + 1) * 14,
-            right: (i + 1) * 14,
+            left: (i + 1) * 16,
+            right: (i + 1) * 16,
             height: peek + 42,
             child: _GhostAccount(balance: ghosts[i], depth: i),
           ),
@@ -413,7 +438,13 @@ class _GhostAccount extends StatelessWidget {
     final account = balance.account;
     final tint = c.categoryAt(account.colorIndex);
     final front = depth == 0;
-    final radius = BorderRadius.circular(24);
+    final radius = BorderRadius.circular(26);
+
+    // ⚠️ The pane is tinted toward the wallet's own slot, not pure white. A
+    // stack of colourless glass slivers is three identical grey bars, which
+    // throws away the one thing that makes them *accounts* rather than rows —
+    // and leaves the 16pt tile doing all the identifying on its own.
+    final pane = Color.lerp(Colors.white, tint, 0.38)!;
 
     return ClipRRect(
       borderRadius: radius,
@@ -426,15 +457,15 @@ class _GhostAccount extends StatelessWidget {
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [
-                Colors.white.withValues(alpha: front ? 0.13 : 0.09),
-                Colors.white.withValues(alpha: front ? 0.055 : 0.035),
+                pane.withValues(alpha: front ? 0.16 : 0.10),
+                pane.withValues(alpha: front ? 0.06 : 0.04),
               ],
             ),
           ),
           child: CustomPaint(
             foregroundPainter: _GhostEdgePainter(
-              radius: 24,
-              strength: front ? 0.30 : 0.18,
+              radius: 26,
+              strength: front ? 0.34 : 0.20,
             ),
             // ⚠️ Top-aligned, not centred. The card is taller than the strip
             // that shows — the rest is inside the pocket — so content left to
